@@ -1,0 +1,26 @@
+{
+  "name": "safemode-claude-code",
+  "version": "0.1.0",
+  "description": "Safe Mode integration for Claude Code",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "safemode": "^0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "safemode",
+    "mcp",
+    "ai-governance"
+  ]
+}

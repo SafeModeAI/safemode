@@ -1,0 +1,26 @@
+# YOLO Preset
+# Maximum freedom - only hardcoded invariants apply
+# Use for: Trusted environments, development, experimentation
+
+version: "1.0"
+preset: yolo
+
+# Approve fallback behavior
+approve_fallback: allow
+
+# Budget limits
+budget:
+  max_session_cost: 100
+  alert_at: 80
+
+# Capability levels
+capabilities:
+  filesystem: full_access
+  terminal: full_access
+  git: full_access
+  network: full_access
+  database: full_access
+  financial: full_access
+
+# No knob overrides - everything allowed
+overrides: {}

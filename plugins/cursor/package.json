@@ -1,0 +1,88 @@
+{
+  "name": "safemode-cursor",
+  "displayName": "Safe Mode for Cursor",
+  "description": "AI governance for MCP servers in Cursor",
+  "version": "0.1.0",
+  "publisher": "safemode",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "safemode.showActivity",
+        "title": "Safe Mode: Show Activity"
+      },
+      {
+        "command": "safemode.togglePreset",
+        "title": "Safe Mode: Toggle Preset"
+      },
+      {
+        "command": "safemode.viewHistory",
+        "title": "Safe Mode: View History"
+      },
+      {
+        "command": "safemode.openSettings",
+        "title": "Safe Mode: Open Settings"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "safemode",
+          "title": "Safe Mode",
+          "icon": "$(shield)"
+        }
+      ]
+    },
+    "views": {
+      "safemode": [
+        {
+          "id": "safemode-activity",
+          "name": "Activity"
+        },
+        {
+          "id": "safemode-status",
+          "name": "Status"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Safe Mode",
+      "properties": {
+        "safemode.preset": {
+          "type": "string",
+          "default": "coding",
+          "enum": ["yolo", "coding", "personal", "trading", "strict"],
+          "description": "Active safety preset"
+        },
+        "safemode.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Safe Mode status in status bar"
+        },
+        "safemode.notificationsEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notifications for alerts and blocks"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}

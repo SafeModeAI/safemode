@@ -1,0 +1,35 @@
+# Trading Preset
+# For financial operations
+# Use for: Trading bots, financial automation
+
+version: "1.0"
+preset: trading
+
+# Block by default when approval needed
+approve_fallback: block
+
+# Budget limits
+budget:
+  max_session_cost: 50
+  max_daily_cost: 500
+  alert_at: 40
+
+# Capability levels
+capabilities:
+  filesystem: read_only
+  terminal: disabled
+  git: disabled
+  network: scoped_write
+  database: read_only
+  financial: scoped_write
+
+# Knob overrides
+overrides:
+  terminal:
+    command_exec: block
+  filesystem:
+    file_write: block
+    file_delete: block
+  financial:
+    payment_create: approve
+    transfer: approve

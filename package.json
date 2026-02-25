@@ -1,0 +1,66 @@
+{
+  "name": "safemode",
+  "version": "0.1.0",
+  "description": "Safe Mode for AI Agents — MCP governance proxy",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "safemode": "./dist/bin/safemode.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist/",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "ai-safety",
+    "governance",
+    "proxy",
+    "cursor",
+    "claude",
+    "anthropic",
+    "model-context-protocol"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trustscope/safemode"
+  },
+  "homepage": "https://safemode.run",
+  "bugs": {
+    "url": "https://github.com/trustscope/safemode/issues"
+  },
+  "author": "TrustScope <hello@trustscope.ai>",
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "glob": "^10.3.10",
+    "js-yaml": "^4.1.0",
+    "nanoid": "^5.0.7",
+    "node-notifier": "^10.0.1",
+    "ora": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.14.0",
+    "@types/node-notifier": "^8.0.5",
+    "typescript": "^5.5.0",
+    "vitest": "^1.6.0"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ]
+}

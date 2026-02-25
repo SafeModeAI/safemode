@@ -1,0 +1,33 @@
+# Coding Preset
+# Balanced for software development
+# Use for: Day-to-day coding, project work
+
+version: "1.0"
+preset: coding
+
+# Block by default when approval needed
+approve_fallback: block
+
+# Budget limits
+budget:
+  max_session_cost: 20
+  alert_at: 16
+
+# Capability levels
+capabilities:
+  filesystem: scoped_write
+  terminal: scoped_write
+  git: scoped_write
+  network: full_access
+  database: scoped_write
+
+# Knob overrides
+overrides:
+  terminal:
+    destructive_commands: block
+    package_installs: approve
+  filesystem:
+    file_delete: approve
+    directory_delete: approve
+  git:
+    git_force_push: approve

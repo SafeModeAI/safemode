@@ -1,0 +1,37 @@
+# Strict Preset
+# Maximum restrictions
+# Use for: Untrusted environments, high-security contexts
+
+version: "1.0"
+preset: strict
+
+# Block by default when approval needed
+approve_fallback: block
+
+# Budget limits
+budget:
+  max_session_cost: 5
+  alert_at: 4
+
+# Capability levels
+capabilities:
+  filesystem: read_only
+  terminal: disabled
+  git: disabled
+  network: read_only
+  database: read_only
+  financial: disabled
+
+# Knob overrides
+overrides:
+  terminal:
+    command_exec: block
+  filesystem:
+    file_write: block
+    file_delete: block
+    directory_delete: block
+  git:
+    git_push: block
+  database:
+    db_write: block
+    db_delete: block
