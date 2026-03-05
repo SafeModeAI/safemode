@@ -1,6 +1,6 @@
 {
   "name": "safemode",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "Stop your AI coding agent from doing something you'll regret.",
   "license": "Apache-2.0",
   "type": "module",
