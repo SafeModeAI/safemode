@@ -60,12 +60,12 @@ const SECRET_CONTENT_PATTERNS = [
 // ============================================================================
 
 export class FirstRunScanner {
-  private homeDir: string;
+  private scanRoot: string;
   private maxFilesToScan = 1000;
   private maxFileSize = 1024 * 1024; // 1MB
 
-  constructor() {
-    this.homeDir = os.homedir();
+  constructor(scanRoot?: string) {
+    this.scanRoot = scanRoot || process.cwd();
   }
 
   /**
@@ -76,10 +76,15 @@ export class FirstRunScanner {
     const findings: ScanFinding[] = [];
     let scannedFiles = 0;
 
-    // Scan for secret files
+    // Scan project directory for secret files
     const secretFindings = await this.scanForSecretFiles();
     findings.push(...secretFindings.findings);
     scannedFiles += secretFindings.scanned;
+
+    // Quick check of well-known dotfiles in $HOME (no recursive glob)
+    const homeFindings = this.scanHomeDotfiles();
+    findings.push(...homeFindings.findings);
+    scannedFiles += homeFindings.scanned;
 
     // Scan for environment issues
     const envFindings = this.scanEnvironment();
@@ -112,10 +117,19 @@ export class FirstRunScanner {
     for (const pattern of SECRET_FILE_PATTERNS) {
       try {
         const files = await glob(pattern, {
-          cwd: this.homeDir,
+          cwd: this.scanRoot,
           absolute: true,
           nodir: true,
-          ignore: ['**/node_modules/**', '**/.git/**'],
+          dot: true,
+          ignore: [
+            '**/node_modules/**',
+            '**/.git/**',
+            '**/dist/**',
+            '**/build/**',
+            '**/.cache/**',
+            '**/Library/**',
+            '**/.Trash/**',
+          ],
         });
 
         for (const file of files.slice(0, 100)) {
@@ -148,6 +162,51 @@ export class FirstRunScanner {
         }
       } catch {
         // Skip glob errors
+      }
+    }
+
+    return { findings, scanned };
+  }
+
+  /**
+   * Quick check of well-known dotfiles in $HOME (no recursive glob)
+   */
+  private scanHomeDotfiles(): { findings: ScanFinding[]; scanned: number } {
+    const findings: ScanFinding[] = [];
+    let scanned = 0;
+    const home = os.homedir();
+
+    const dotfiles = [
+      path.join(home, '.env'),
+      path.join(home, '.env.local'),
+      path.join(home, '.aws', 'credentials'),
+      path.join(home, '.npmrc'),
+    ];
+
+    for (const file of dotfiles) {
+      try {
+        if (!fs.existsSync(file)) continue;
+        const stats = fs.statSync(file);
+        if (stats.size > this.maxFileSize) continue;
+
+        const content = fs.readFileSync(file, 'utf8');
+        scanned++;
+
+        for (const { pattern: secretPattern, name } of SECRET_CONTENT_PATTERNS) {
+          secretPattern.lastIndex = 0;
+          if (secretPattern.test(content)) {
+            findings.push({
+              type: 'secret',
+              severity: 'high',
+              description: `${name} found in file`,
+              path: file,
+              recommendation: 'Consider using environment variables or a secrets manager',
+            });
+            break;
+          }
+        }
+      } catch {
+        // Skip files we can't read
       }
     }
 
@@ -192,10 +251,11 @@ export class FirstRunScanner {
     const findings: ScanFinding[] = [];
 
     // Check for insecure MCP server configurations
+    const home = os.homedir();
     const mcpConfigPaths = [
-      path.join(this.homeDir, 'Library/Application Support/Claude/claude_desktop_config.json'),
-      path.join(this.homeDir, '.cursor/mcp.json'),
-      path.join(this.homeDir, '.claude/mcp_servers.json'),
+      path.join(home, 'Library/Application Support/Claude/claude_desktop_config.json'),
+      path.join(home, '.cursor/mcp.json'),
+      path.join(home, '.claude/mcp_servers.json'),
     ];
 
     for (const configPath of mcpConfigPaths) {
