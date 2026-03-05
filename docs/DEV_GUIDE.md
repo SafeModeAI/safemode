@@ -64,19 +64,37 @@ The `ACTION_KNOB_MAP` in `src/knobs/gate.ts` maps (category, action) pairs to kn
 
 ## Detection Engines
 
-All engines extend `DetectionEngine` from `src/engines/base.ts`:
+All engines implement `DetectionEngine` from `src/engines/base.ts`:
 
 ```typescript
-abstract evaluate(
-  toolName: string,
-  serverName: string,
-  params: Record<string, unknown>,
-  effect: ToolCallEffect,
-  session: SessionState
-): Promise<EngineResult>;
+interface DetectionEngine {
+  readonly id: number;
+  readonly name: string;
+  readonly description: string;
+  evaluate(context: EngineContext): Promise<EngineResult>;
+}
+
+interface EngineContext {
+  tool_name: string;
+  server_name: string;
+  parameters: Record<string, unknown>;
+  effect: ToolCallEffect;
+  session: SessionState;
+}
 ```
 
-Engines run in parallel via `EngineRegistry.evaluate()`. Any engine returning `blocked: true` blocks the tool call.
+Engines run in parallel via `EngineRegistry.evaluate()`. Any engine returning `action: 'block'` blocks the tool call.
+
+### Session State in Hooks
+
+The hook runner is a separate process per invocation. Session state is reconstructed from SQLite events in `getOrCreateSession()`:
+
+- `call_counts` / `error_counts` — per-server Maps from event outcomes
+- `latency_history` — per-server latency arrays from `latency_ms` column
+- `session_cost_usd` — estimated cost (`tool_call_count * cost_per_call`, default $0.01)
+- `calls_per_minute` — per-minute bucket counts from timestamps
+
+This gives engines 4, 6, 7, 8, and 14 the data they need to function across hook invocations.
 
 ## Hook Runner
 
@@ -128,7 +146,7 @@ Add to `KNOWN_TOOLS` in `src/cet/index.ts`:
 
 ## Event Store
 
-SQLite database at `~/.safemode/events.db`. Schema in `src/store/index.ts`.
+SQLite database at `~/.safemode/safemode.db`. Schema in `src/store/index.ts`.
 
 Every tool call is logged with: tool name, server, effect, outcome, latency, engine results.
 

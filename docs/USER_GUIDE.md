@@ -117,8 +117,8 @@ safemode uninstall             # Remove hooks, restore configs
 |------|---------|
 | `~/.safemode/config.yaml` | Personal config (preset, overrides, budget) |
 | `.safemode.yaml` | Project config (rules, stricter overrides) |
-| `~/.safemode/events.db` | SQLite event log |
-| `~/.safemode/snapshots/` | Time Machine file snapshots |
+| `~/.safemode/safemode.db` | SQLite event log |
+| `~/.safemode/backup/` | Time Machine file snapshots |
 
 ## Detection Engines
 
@@ -127,7 +127,7 @@ safemode uninstall             # Remove hooks, restore configs
 | Loop Killer | Repeated identical tool calls |
 | Oscillation | Write-undo-write cycles |
 | Velocity Limiter | Too many calls per minute |
-| Cost Exposure | Session cost exceeding budget |
+| Cost Exposure | Estimated session cost approaching budget |
 | Action Growth | Escalating permission requests |
 | Latency Spike | Abnormal response times |
 | Error Rate | Sustained error patterns |
@@ -137,7 +137,7 @@ safemode uninstall             # Remove hooks, restore configs
 | Prompt Injection | Injection attempts in tool outputs |
 | Jailbreak | Attempts to bypass safety controls |
 | Command Firewall | Dangerous shell commands |
-| Budget Cap | Hard spending limits |
+| Budget Cap | Hard estimated spending limit |
 | Action-Label Mismatch | Tool says "read" but actually writes |
 
 ## Cloud (Optional)

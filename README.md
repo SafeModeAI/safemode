@@ -132,7 +132,7 @@ safemode phone --test        # Send a test notification
 | 1 | Loop Killer | Repeated identical tool calls |
 | 2 | Oscillation | Write-undo-write cycles |
 | 3 | Velocity Limiter | Too many calls per minute |
-| 4 | Cost Exposure | Session cost exceeding budget |
+| 4 | Cost Exposure | Estimated session cost approaching budget |
 | 5 | Action Growth | Escalating permission requests |
 | 6 | Latency Spike | Abnormal response times |
 | 7 | Error Rate | Sustained error patterns |
@@ -142,7 +142,7 @@ safemode phone --test        # Send a test notification
 | 11 | Prompt Injection | Injection attempts in tool outputs |
 | 12 | Jailbreak | Attempts to bypass safety controls |
 | 13 | Command Firewall | Dangerous shell commands (rm -rf, chmod 777, etc.) |
-| 14 | Budget Cap | Hard spending limits |
+| 14 | Budget Cap | Hard estimated spending limit |
 | 15 | Action-Label Mismatch | Tool says "read" but actually writes |
 
 ## Config
