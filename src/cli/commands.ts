@@ -1168,7 +1168,7 @@ export async function cloudStatusCommand(): Promise<void> {
 export async function versionCommand(): Promise<void> {
   const pkgPath = path.resolve(
     path.dirname(new URL(import.meta.url).pathname),
-    '../../package.json'
+    '../../../package.json'
   );
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
