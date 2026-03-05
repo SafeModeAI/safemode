@@ -37,15 +37,16 @@ export class HookExecutor {
     this.hookDirs = [];
 
     if (this.config.customDir) {
+      // When customDir is set, only use that directory (enables test isolation)
       this.hookDirs.push(this.config.customDir);
+    } else {
+      // Default hook locations
+      this.hookDirs.push(
+        join(homedir(), '.cursor', 'hooks'),
+        join(homedir(), '.claude', 'hooks'),
+        join(homedir(), '.safemode', 'hooks'),
+      );
     }
-
-    // Default hook locations
-    this.hookDirs.push(
-      join(homedir(), '.cursor', 'hooks'),
-      join(homedir(), '.claude', 'hooks'),
-      join(homedir(), '.safemode', 'hooks'),
-    );
   }
 
   /**

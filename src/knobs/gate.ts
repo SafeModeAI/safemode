@@ -146,9 +146,11 @@ export class KnobGate {
   }
 
   /**
-   * Evaluate a tool call effect against knob configuration
+   * Evaluate a tool call effect against knob configuration.
+   * Optional overrides parameter allows session-level knob overrides
+   * (e.g., from `safemode allow <action> --once`) without making the gate stateful.
    */
-  evaluate(effect: ToolCallEffect): KnobResult {
+  evaluate(effect: ToolCallEffect, overrides?: Record<string, KnobValue>): KnobResult {
     // Determine the relevant knob
     const knob = this.getKnobForEffect(effect);
 
@@ -157,8 +159,8 @@ export class KnobGate {
       return this.evaluateFallback(effect);
     }
 
-    // Get knob value
-    const value = this.config.knobs[knob];
+    // Check overrides first, then config
+    const value = overrides?.[knob] ?? this.config.knobs[knob];
 
     if (!value) {
       // Knob not configured, use fallback

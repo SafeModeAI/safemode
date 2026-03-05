@@ -249,6 +249,23 @@ export class DiscordApprovalProvider {
   }
 
   /**
+   * Send a one-way notification (no approval needed)
+   */
+  async sendNotification(title: string, body: string): Promise<boolean> {
+    try {
+      await this.sendWebhook({
+        title,
+        description: body,
+        color: 0xff6600,
+        timestamp: new Date().toISOString(),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Test connection by sending a test message
    */
   async testConnection(): Promise<boolean> {

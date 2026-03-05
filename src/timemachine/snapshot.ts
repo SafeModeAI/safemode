@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readFileSync, copyFileSync, rmSync, readdirSync 
 import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 
 // ============================================================================
@@ -42,6 +43,9 @@ export interface Snapshot {
 
   /** Server that triggered this snapshot */
   serverName: string;
+
+  /** Git stash ref if snapshot was taken via git stash create */
+  gitStashRef: string | null;
 
   /** Whether this snapshot has been rolled back */
   rolledBack: boolean;
@@ -128,6 +132,7 @@ export class SnapshotStore {
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         tool_name TEXT,
         server_name TEXT,
+        git_stash_ref TEXT,
         rolled_back INTEGER DEFAULT 0,
         rolled_back_at TEXT
       );
@@ -136,6 +141,13 @@ export class SnapshotStore {
       CREATE INDEX IF NOT EXISTS idx_snapshots_file ON snapshots(file_path);
       CREATE INDEX IF NOT EXISTS idx_snapshots_created ON snapshots(created_at);
     `);
+
+    // Migration: add git_stash_ref column if missing
+    try {
+      this.db.exec('ALTER TABLE snapshots ADD COLUMN git_stash_ref TEXT');
+    } catch {
+      // Column already exists
+    }
   }
 
   /**
@@ -154,6 +166,7 @@ export class SnapshotStore {
     let backupPath: string | null = null;
     let originalHash: string | null = null;
     let originalSize = 0;
+    let gitStashRef: string | null = null;
 
     // Check if file exists
     if (existsSync(resolvedPath)) {
@@ -162,7 +175,10 @@ export class SnapshotStore {
         originalHash = createHash('sha256').update(content).digest('hex');
         originalSize = content.length;
 
-        // Create backup
+        // Try git stash create for git repos (creates a stash commit without modifying worktree)
+        gitStashRef = this.tryGitStash(resolvedPath);
+
+        // Always create file backup as fallback
         backupPath = this.createBackupPath(snapshotId, resolvedPath);
         const backupDir = dirname(backupPath);
         if (!existsSync(backupDir)) {
@@ -179,8 +195,8 @@ export class SnapshotStore {
     const stmt = this.db.prepare(`
       INSERT INTO snapshots (
         id, session_id, file_path, backup_path, original_hash,
-        original_size, created_at, tool_name, server_name
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        original_size, created_at, tool_name, server_name, git_stash_ref
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -192,7 +208,8 @@ export class SnapshotStore {
       originalSize,
       createdAt.toISOString(),
       toolName,
-      serverName
+      serverName,
+      gitStashRef
     );
 
     // Cleanup old snapshots
@@ -208,6 +225,7 @@ export class SnapshotStore {
       createdAt,
       toolName,
       serverName,
+      gitStashRef,
       rolledBack: false,
       rolledBackAt: null,
     };
@@ -220,6 +238,22 @@ export class SnapshotStore {
     const timestamp = Date.now().toString(36);
     const random = Math.random().toString(36).substring(2, 8);
     return `snap_${timestamp}_${random}`;
+  }
+
+  /**
+   * Try to create a git stash ref for a file in a git repo
+   */
+  private tryGitStash(filePath: string): string | null {
+    try {
+      const dir = dirname(filePath);
+      // Check if we're in a git repo
+      execSync('git rev-parse --is-inside-work-tree', { cwd: dir, stdio: 'pipe' });
+      // git stash create makes a stash commit without modifying the worktree
+      const ref = execSync('git stash create', { cwd: dir, encoding: 'utf8' }).trim();
+      return ref || null; // empty string if no changes to stash
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -295,8 +329,28 @@ export class SnapshotStore {
     }
 
     try {
+      // Try git stash apply first if available
+      if (snapshot.gitStashRef) {
+        try {
+          const dir = dirname(snapshot.filePath);
+          execSync(`git stash apply ${snapshot.gitStashRef}`, { cwd: dir, stdio: 'pipe' });
+          // Mark as rolled back and return success
+          this.db.prepare(
+            "UPDATE snapshots SET rolled_back = 1, rolled_back_at = datetime('now') WHERE id = ?"
+          ).run(snapshotId);
+          return {
+            success: true,
+            restoredFiles: [snapshot.filePath],
+            failedFiles: [],
+            snapshotIds: [snapshotId],
+          };
+        } catch {
+          // Git stash apply failed, fall through to file backup
+        }
+      }
+
       if (snapshot.backupPath && existsSync(snapshot.backupPath)) {
-        // Restore from backup
+        // Restore from file backup
         const dir = dirname(snapshot.filePath);
         if (!existsSync(dir)) {
           mkdirSync(dir, { recursive: true });
@@ -399,6 +453,44 @@ export class SnapshotStore {
   }
 
   /**
+   * Get recent sessions with snapshot info
+   */
+  getRecentSessions(limit: number = 20): Array<{
+    sessionId: string;
+    fileCount: number;
+    snapshotCount: number;
+    createdAt: string;
+    latestAt: string;
+  }> {
+    const rows = this.db.prepare(`
+      SELECT
+        session_id,
+        COUNT(DISTINCT file_path) as file_count,
+        COUNT(*) as snapshot_count,
+        MIN(created_at) as created_at,
+        MAX(created_at) as latest_at
+      FROM snapshots
+      GROUP BY session_id
+      ORDER BY MAX(created_at) DESC
+      LIMIT ?
+    `).all(limit) as Array<{
+      session_id: string;
+      file_count: number;
+      snapshot_count: number;
+      created_at: string;
+      latest_at: string;
+    }>;
+
+    return rows.map(r => ({
+      sessionId: r.session_id,
+      fileCount: r.file_count,
+      snapshotCount: r.snapshot_count,
+      createdAt: r.created_at,
+      latestAt: r.latest_at,
+    }));
+  }
+
+  /**
    * Cleanup old snapshots
    */
   cleanup(): void {
@@ -483,6 +575,7 @@ export class SnapshotStore {
       createdAt: new Date(row.created_at as string),
       toolName: row.tool_name as string,
       serverName: row.server_name as string,
+      gitStashRef: (row.git_stash_ref as string | null) ?? null,
       rolledBack: (row.rolled_back as number) === 1,
       rolledBackAt: row.rolled_back_at ? new Date(row.rolled_back_at as string) : null,
     };

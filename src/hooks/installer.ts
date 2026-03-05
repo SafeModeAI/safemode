@@ -4,9 +4,35 @@
  * Installs and manages Safe Mode hooks for different IDEs.
  */
 
-import { existsSync, mkdirSync, writeFileSync, chmodSync, unlinkSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, chmodSync, unlinkSync, readdirSync, statSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+// Resolve path to the bundled hook-runner at install time
+const __dirname_local = dirname(fileURLToPath(import.meta.url));
+function getBundlePath(): string {
+  // Compiled: __dirname_local = <pkg>/dist/src/hooks
+  // Bundle:  <pkg>/dist/hooks/hook-runner.bundle.js
+  // Walk up to dist/, then into hooks/
+  const distDir = join(__dirname_local, '..', '..');  // dist/src/hooks -> dist/
+  const bundlePath = join(distDir, 'hooks', 'hook-runner.bundle.js');
+  if (existsSync(bundlePath)) return bundlePath;
+  // Also check sibling (in case tsconfig outDir changes)
+  const siblingPath = join(__dirname_local, 'hook-runner.bundle.js');
+  if (existsSync(siblingPath)) return siblingPath;
+  // Fallback: use safemode CLI (slower but always works)
+  return '';
+}
+
+function getHookCommand(surface: string): string {
+  const bundle = getBundlePath();
+  if (bundle) {
+    return `node ${bundle} ${surface}`;
+  }
+  // Fallback to CLI subcommand
+  return `safemode hook ${surface}`;
+}
 
 import type {
   HookName,
@@ -311,6 +337,263 @@ console.log(JSON.stringify({
 };
 
 // ============================================================================
+// Platform-Native Hook Config Writers
+// ============================================================================
+
+/**
+ * Write Claude Code settings.json with PreToolUse/PostToolUse hook entries.
+ * Merges with existing settings — does not overwrite other fields.
+ */
+function writeClaudeCodeHookConfig(): void {
+  const settingsPath = join(homedir(), '.claude', 'settings.json');
+  const backupPath = settingsPath + '.safemode-backup';
+
+  // Load existing settings or start fresh
+  let settings: Record<string, unknown> = {};
+  if (existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    } catch {
+      settings = {};
+    }
+    // Back up original before first modification
+    if (!existsSync(backupPath)) {
+      copyFileSync(settingsPath, backupPath);
+    }
+  }
+
+  // Build hook command — use bundled hook-runner for fast cold start
+  const preCommand = getHookCommand('claude-code');
+  const postCommand = getHookCommand('claude-code-post');
+
+  // Merge hooks into settings (preserve existing hooks from other tools)
+  const existingHooks = (settings.hooks || {}) as Record<string, unknown>;
+
+  // Build PreToolUse array — add our hook, keep others
+  const isSafemodeHook = (inner: Record<string, unknown>) =>
+    typeof inner.command === 'string' && (inner.command.includes('hook-runner') || inner.command.includes('safemode hook'));
+
+  const existingPre = (existingHooks.PreToolUse || []) as Array<Record<string, unknown>>;
+  const filteredPre = existingPre.filter(
+    (h) => !(h.hooks as Array<Record<string, unknown>>)?.some(isSafemodeHook)
+  );
+  filteredPre.push({
+    matcher: '.*',
+    hooks: [{ type: 'command', command: preCommand }],
+  });
+
+  // Build PostToolUse array
+  const existingPost = (existingHooks.PostToolUse || []) as Array<Record<string, unknown>>;
+  const filteredPost = existingPost.filter(
+    (h) => !(h.hooks as Array<Record<string, unknown>>)?.some(isSafemodeHook)
+  );
+  filteredPost.push({
+    matcher: '.*',
+    hooks: [{ type: 'command', command: postCommand }],
+  });
+
+  settings.hooks = {
+    ...existingHooks,
+    PreToolUse: filteredPre,
+    PostToolUse: filteredPost,
+  };
+
+  // Write with permission safety
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+}
+
+/**
+ * Write Cursor hooks.json with beforeShellExecution, beforeMCPExecution, etc.
+ */
+function writeCursorHookConfig(): void {
+  const hooksJsonPath = join(homedir(), '.cursor', 'hooks.json');
+  const backupPath = hooksJsonPath + '.safemode-backup';
+
+  // Load existing hooks.json or start fresh
+  let hooksConfig: Record<string, unknown> = { version: 1, hooks: {} };
+  if (existsSync(hooksJsonPath)) {
+    try {
+      hooksConfig = JSON.parse(readFileSync(hooksJsonPath, 'utf8'));
+    } catch {
+      hooksConfig = { version: 1, hooks: {} };
+    }
+    if (!existsSync(backupPath)) {
+      copyFileSync(hooksJsonPath, backupPath);
+    }
+  }
+
+  const preCommand = getHookCommand('cursor');
+  const postCommand = getHookCommand('cursor-post');
+
+  const hooks = (hooksConfig.hooks || {}) as Record<string, unknown>;
+
+  // Helper: add safemode hook to an event, keeping existing non-safemode hooks
+  function mergeHookArray(existing: unknown, command: string): Array<Record<string, unknown>> {
+    const arr = Array.isArray(existing) ? existing : [];
+    const filtered = arr.filter(
+      (h: Record<string, unknown>) => typeof h.command !== 'string' ||
+        (!h.command.toString().includes('hook-runner') && !h.command.toString().includes('safemode hook'))
+    );
+    filtered.push({ command, type: 'command' });
+    return filtered;
+  }
+
+  hooks.beforeShellExecution = mergeHookArray(hooks.beforeShellExecution, preCommand);
+  hooks.beforeMCPExecution = mergeHookArray(hooks.beforeMCPExecution, preCommand);
+  hooks.beforeReadFile = mergeHookArray(hooks.beforeReadFile, preCommand);
+  hooks.beforeSubmitPrompt = mergeHookArray(hooks.beforeSubmitPrompt, preCommand);
+  hooks.afterFileEdit = mergeHookArray(hooks.afterFileEdit, postCommand);
+
+  hooksConfig.version = 1;
+  hooksConfig.hooks = hooks;
+
+  mkdirSync(dirname(hooksJsonPath), { recursive: true });
+  writeFileSync(hooksJsonPath, JSON.stringify(hooksConfig, null, 2), 'utf8');
+}
+
+/**
+ * Write Windsurf hooks.json with pre_run_command, pre_write_code, etc.
+ */
+function writeWindsurfHookConfig(): void {
+  const hooksJsonPath = join(homedir(), '.codeium', 'windsurf', 'hooks.json');
+  const backupPath = hooksJsonPath + '.safemode-backup';
+
+  let hooksConfig: Record<string, unknown> = { hooks: {} };
+  if (existsSync(hooksJsonPath)) {
+    try {
+      hooksConfig = JSON.parse(readFileSync(hooksJsonPath, 'utf8'));
+    } catch {
+      hooksConfig = { hooks: {} };
+    }
+    if (!existsSync(backupPath)) {
+      copyFileSync(hooksJsonPath, backupPath);
+    }
+  }
+
+  const preCommand = getHookCommand('windsurf');
+  const postCommand = getHookCommand('windsurf-post');
+
+  const hooks = (hooksConfig.hooks || {}) as Record<string, unknown>;
+
+  function mergeHookArray(existing: unknown, command: string): Array<Record<string, unknown>> {
+    const arr = Array.isArray(existing) ? existing : [];
+    const filtered = arr.filter(
+      (h: Record<string, unknown>) => typeof h.command !== 'string' ||
+        (!h.command.toString().includes('hook-runner') && !h.command.toString().includes('safemode hook'))
+    );
+    filtered.push({ command });
+    return filtered;
+  }
+
+  hooks.pre_run_command = mergeHookArray(hooks.pre_run_command, preCommand);
+  hooks.pre_write_code = mergeHookArray(hooks.pre_write_code, preCommand);
+  hooks.pre_read_code = mergeHookArray(hooks.pre_read_code, preCommand);
+  hooks.pre_mcp_tool_use = mergeHookArray(hooks.pre_mcp_tool_use, preCommand);
+  hooks.post_run_command = mergeHookArray(hooks.post_run_command, postCommand);
+  hooks.post_write_code = mergeHookArray(hooks.post_write_code, postCommand);
+  hooks.post_mcp_tool_use = mergeHookArray(hooks.post_mcp_tool_use, postCommand);
+
+  hooksConfig.hooks = hooks;
+
+  mkdirSync(dirname(hooksJsonPath), { recursive: true });
+  writeFileSync(hooksJsonPath, JSON.stringify(hooksConfig, null, 2), 'utf8');
+}
+
+/**
+ * Remove Safe Mode hooks from Claude Code settings.json
+ */
+function removeClaudeCodeHookConfig(): void {
+  const settingsPath = join(homedir(), '.claude', 'settings.json');
+  const backupPath = settingsPath + '.safemode-backup';
+
+  if (existsSync(backupPath)) {
+    copyFileSync(backupPath, settingsPath);
+    unlinkSync(backupPath);
+    return;
+  }
+
+  // No backup — manually remove our hooks
+  if (!existsSync(settingsPath)) return;
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    const hooks = settings.hooks || {};
+    for (const event of ['PreToolUse', 'PostToolUse']) {
+      if (Array.isArray(hooks[event])) {
+        hooks[event] = hooks[event].filter(
+          (h: Record<string, unknown>) => !(h.hooks as Array<Record<string, unknown>>)?.some(
+            (inner) => typeof inner.command === 'string' && inner.command.includes('hook-runner')
+          )
+        );
+        if (hooks[event].length === 0) delete hooks[event];
+      }
+    }
+    if (Object.keys(hooks).length === 0) delete settings.hooks;
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+  } catch { /* ignore */ }
+}
+
+/**
+ * Remove Safe Mode hooks from Cursor hooks.json
+ */
+function removeCursorHookConfig(): void {
+  const hooksJsonPath = join(homedir(), '.cursor', 'hooks.json');
+  const backupPath = hooksJsonPath + '.safemode-backup';
+
+  if (existsSync(backupPath)) {
+    copyFileSync(backupPath, hooksJsonPath);
+    unlinkSync(backupPath);
+    return;
+  }
+
+  if (!existsSync(hooksJsonPath)) return;
+  try {
+    const config = JSON.parse(readFileSync(hooksJsonPath, 'utf8'));
+    const hooks = config.hooks || {};
+    for (const event of Object.keys(hooks)) {
+      if (Array.isArray(hooks[event])) {
+        hooks[event] = hooks[event].filter(
+          (h: Record<string, unknown>) => typeof h.command !== 'string' || !h.command.includes('hook-runner')
+        );
+        if (hooks[event].length === 0) delete hooks[event];
+      }
+    }
+    config.hooks = hooks;
+    writeFileSync(hooksJsonPath, JSON.stringify(config, null, 2), 'utf8');
+  } catch { /* ignore */ }
+}
+
+/**
+ * Remove Safe Mode hooks from Windsurf hooks.json
+ */
+function removeWindsurfHookConfig(): void {
+  const hooksJsonPath = join(homedir(), '.codeium', 'windsurf', 'hooks.json');
+  const backupPath = hooksJsonPath + '.safemode-backup';
+
+  if (existsSync(backupPath)) {
+    copyFileSync(backupPath, hooksJsonPath);
+    unlinkSync(backupPath);
+    return;
+  }
+
+  if (!existsSync(hooksJsonPath)) return;
+  try {
+    const config = JSON.parse(readFileSync(hooksJsonPath, 'utf8'));
+    const hooks = config.hooks || {};
+    for (const event of Object.keys(hooks)) {
+      if (Array.isArray(hooks[event])) {
+        hooks[event] = hooks[event].filter(
+          (h: Record<string, unknown>) => typeof h.command !== 'string' || !h.command.includes('hook-runner')
+        );
+        if (hooks[event].length === 0) delete hooks[event];
+      }
+    }
+    config.hooks = hooks;
+    writeFileSync(hooksJsonPath, JSON.stringify(config, null, 2), 'utf8');
+  } catch { /* ignore */ }
+}
+
+// ============================================================================
 // IDE Paths
 // ============================================================================
 
@@ -342,9 +625,9 @@ function getIDEPaths(): Record<IDE, IDEInfo> {
     windsurf: {
       name: 'Windsurf',
       ide: 'windsurf',
-      hooksPath: join(home, '.windsurf', 'hooks'),
-      configPath: join(home, '.windsurf', 'mcp.json'),
-      installed: existsSync(join(home, '.windsurf')),
+      hooksPath: join(home, '.codeium', 'windsurf', 'hooks'),
+      configPath: join(home, '.codeium', 'windsurf', 'hooks.json'),
+      installed: existsSync(join(home, '.codeium', 'windsurf')) || existsSync(join(home, '.windsurf')),
     },
   };
 }
@@ -361,30 +644,58 @@ export class HookInstaller {
   }
 
   /**
-   * Install hooks for Cursor
+   * Install hooks for Cursor — writes platform-native ~/.cursor/hooks.json
    */
   async installCursor(): Promise<void> {
-    await this.install('cursor');
+    writeCursorHookConfig();
+    await this.installLegacyScripts('cursor');
   }
 
   /**
-   * Install hooks for Claude Code
+   * Install hooks for Claude Code — writes platform-native ~/.claude/settings.json
    */
   async installClaudeCode(): Promise<void> {
-    await this.install('claude-code');
+    writeClaudeCodeHookConfig();
+    await this.installLegacyScripts('claude-code');
   }
 
   /**
-   * Install hooks for VS Code
+   * Install hooks for Windsurf — writes platform-native ~/.codeium/windsurf/hooks.json
+   */
+  async installWindsurf(): Promise<void> {
+    writeWindsurfHookConfig();
+    await this.installLegacyScripts('windsurf');
+  }
+
+  /**
+   * Install hooks for VS Code (legacy scripts only, no native hook system)
    */
   async installVSCode(): Promise<void> {
-    await this.install('vscode');
+    await this.installLegacyScripts('vscode');
   }
 
   /**
-   * Install hooks for an IDE
+   * Install hooks for an IDE — dispatches to platform-specific method
    */
   async install(ide: IDE): Promise<void> {
+    switch (ide) {
+      case 'claude-code':
+        return this.installClaudeCode();
+      case 'cursor':
+        return this.installCursor();
+      case 'windsurf':
+        return this.installWindsurf();
+      case 'vscode':
+        return this.installVSCode();
+      default:
+        throw new Error(`Unknown IDE: ${ide}`);
+    }
+  }
+
+  /**
+   * Install legacy hook scripts to an IDE's hooks directory
+   */
+  private async installLegacyScripts(ide: IDE): Promise<void> {
     const info = this.idePaths[ide];
 
     if (!info) {
@@ -421,9 +732,23 @@ export class HookInstaller {
   }
 
   /**
-   * Uninstall hooks for an IDE
+   * Uninstall hooks for an IDE — removes platform-native config + legacy scripts
    */
   async uninstall(ide: IDE): Promise<void> {
+    // Remove platform-native hook configs
+    switch (ide) {
+      case 'claude-code':
+        removeClaudeCodeHookConfig();
+        break;
+      case 'cursor':
+        removeCursorHookConfig();
+        break;
+      case 'windsurf':
+        removeWindsurfHookConfig();
+        break;
+    }
+
+    // Remove legacy hook scripts
     const info = this.idePaths[ide];
 
     if (!info) {
@@ -431,10 +756,9 @@ export class HookInstaller {
     }
 
     if (!existsSync(info.hooksPath)) {
-      return; // Nothing to uninstall
+      return;
     }
 
-    // Remove each hook script
     const hookNames: HookName[] = [
       'pre-tool-call',
       'post-tool-call',
@@ -457,7 +781,6 @@ export class HookInstaller {
     try {
       const remaining = readdirSync(info.hooksPath);
       if (remaining.length === 0) {
-        // Directory is empty, remove it
         unlinkSync(info.hooksPath);
       }
     } catch {

@@ -349,7 +349,7 @@ console.log(JSON.stringify({ continue: true }));
       const dirs = executor.getHookDirs();
 
       expect(dirs[0]).toBe(testDir);
-      expect(dirs.length).toBeGreaterThan(1); // Should include default dirs
+      expect(dirs.length).toBe(1); // customDir is exclusive for isolation
     });
   });
 });

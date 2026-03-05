@@ -34,3 +34,7 @@ export { HookExecutor, getHookExecutor, resetHookExecutor } from './executor.js'
 
 // Installer
 export { HookInstaller, getHookInstaller } from './installer.js';
+
+// Hook Runner (governance pipeline for hook-based surfaces)
+export { runGovernancePipeline } from './hook-runner.js';
+export type { Surface, HookInput } from './hook-runner.js';

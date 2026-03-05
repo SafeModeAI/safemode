@@ -19,8 +19,8 @@ import {
 import type { ToolCallEffect } from '../src/cet/types.js';
 
 describe('Knob Categories', () => {
-  it('should have 19 categories defined', () => {
-    expect(Object.keys(KNOB_DEFINITIONS).length).toBe(19);
+  it('should have 20 categories defined', () => {
+    expect(Object.keys(KNOB_DEFINITIONS).length).toBe(20);
   });
 
   it('should have terminal category with required knobs', () => {

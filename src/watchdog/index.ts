@@ -41,6 +41,15 @@ export interface WatchdogState {
   uptime: number;
 }
 
+export type DegradedMode = 'normal' | 'read_only' | 'block_all';
+
+export interface DegradedState {
+  mode: DegradedMode;
+  since: Date | null;
+  crashCount: number;
+  windowMs: number;
+}
+
 interface ProxyInfo {
   process: ChildProcess;
   serverName: string;
@@ -49,6 +58,10 @@ interface ProxyInfo {
   startedAt: Date;
   restartCount: number;
 }
+
+/** Crash window for degraded mode: 3 crashes in 5 minutes */
+const DEGRADED_CRASH_THRESHOLD = 3;
+const DEGRADED_WINDOW_MS = 5 * 60 * 1000;
 
 // ============================================================================
 // Default Config
@@ -71,10 +84,61 @@ export class Watchdog extends EventEmitter {
   private proxies: Map<string, ProxyInfo> = new Map();
   private healthCheckTimer: NodeJS.Timeout | null = null;
   private isRunning = false;
+  private crashTimestamps: number[] = [];
+  private _degradedMode: DegradedMode = 'normal';
+  private _degradedSince: Date | null = null;
+  private _strictDegraded = false;
 
-  constructor(config: Partial<WatchdogConfig> = {}) {
+  constructor(config: Partial<WatchdogConfig> & { strictDegraded?: boolean } = {}) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this._strictDegraded = config.strictDegraded ?? false;
+  }
+
+  /**
+   * Get current degraded mode state
+   */
+  get degradedMode(): DegradedMode {
+    return this._degradedMode;
+  }
+
+  /**
+   * Get full degraded state
+   */
+  getDegradedState(): DegradedState {
+    return {
+      mode: this._degradedMode,
+      since: this._degradedSince,
+      crashCount: this.getRecentCrashCount(),
+      windowMs: DEGRADED_WINDOW_MS,
+    };
+  }
+
+  /**
+   * Record a crash and check if we should enter degraded mode
+   */
+  private recordCrash(): void {
+    const now = Date.now();
+    this.crashTimestamps.push(now);
+
+    // Remove crashes outside the window
+    const cutoff = now - DEGRADED_WINDOW_MS;
+    this.crashTimestamps = this.crashTimestamps.filter(ts => ts > cutoff);
+
+    if (this.crashTimestamps.length >= DEGRADED_CRASH_THRESHOLD && this._degradedMode === 'normal') {
+      this._degradedMode = this._strictDegraded ? 'block_all' : 'read_only';
+      this._degradedSince = new Date();
+      this.log(`Entering degraded mode: ${this._degradedMode} (${this.crashTimestamps.length} crashes in ${DEGRADED_WINDOW_MS / 1000}s)`);
+      this.emit('degraded', {
+        mode: this._degradedMode,
+        crashCount: this.crashTimestamps.length,
+      });
+    }
+  }
+
+  private getRecentCrashCount(): number {
+    const cutoff = Date.now() - DEGRADED_WINDOW_MS;
+    return this.crashTimestamps.filter(ts => ts > cutoff).length;
   }
 
   /**
@@ -217,6 +281,11 @@ export class Watchdog extends EventEmitter {
   ): void {
     this.log(`Proxy exited: ${info.serverName} (code=${code}, signal=${signal})`);
     this.emit('exit', { id, serverName: info.serverName, code, signal });
+
+    // Record crash for degraded mode tracking
+    if (code !== 0) {
+      this.recordCrash();
+    }
 
     // Check if we should restart
     if (!this.isRunning) return;

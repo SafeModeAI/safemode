@@ -52,6 +52,16 @@ export interface SafeModeConfig {
 
   /** Cloud bridge connected */
   cloud_connected: boolean;
+
+  /** Notification provider configuration */
+  notifications?: {
+    provider: 'telegram' | 'discord' | null;
+    telegram?: { bot_token: string; chat_id: string };
+    discord?: { webhook_url: string };
+  };
+
+  /** Custom rules (loaded from config files) */
+  rules?: Array<Record<string, unknown>>;
 }
 
 export interface LoadedConfig extends SafeModeConfig {
@@ -248,6 +258,7 @@ export class ConfigLoader {
       approve_fallback: baseConfig.approve_fallback || PRESET_DEFAULTS[preset].approve_fallback!,
       ml_enabled: baseConfig.ml_enabled ?? false,
       cloud_connected: baseConfig.cloud_connected ?? false,
+      rules: baseConfig.rules,
       knobs,
       sources,
     };
@@ -352,6 +363,11 @@ export class ConfigLoader {
         ...merged.budget,
         ...override.budget,
       } as SafeModeConfig['budget'];
+    }
+
+    // Merge rules (project rules append to personal rules)
+    if (override.rules) {
+      merged.rules = [...(merged.rules || []), ...override.rules];
     }
 
     return merged;

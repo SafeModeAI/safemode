@@ -57,6 +57,9 @@ export {
   type IDE,
   type IDEInfo,
   HOOK_NAMES,
+  runGovernancePipeline,
+  type Surface,
+  type HookInput,
 } from './hooks/index.js';
 
 // Sprint 2 Bridge exports

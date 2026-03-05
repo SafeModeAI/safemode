@@ -6,6 +6,7 @@
 
 import chalk from 'chalk';
 import ora from 'ora';
+import yaml from 'js-yaml';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -16,6 +17,7 @@ import { getNotificationManager } from '../notifications/index.js';
 import { FirstRunScanner } from '../scanner/index.js';
 import { getHookInstaller } from '../hooks/index.js';
 import { getBridgeClient, isDeviceRegistered, getConnectionStatus, getBridgeHealth } from '../bridge/index.js';
+import { ACTION_KNOB_MAP, VALID_ACTIONS, saveSessionOverride } from '../config/allowlist.js';
 
 // ============================================================================
 // Init Command
@@ -24,14 +26,15 @@ import { getBridgeClient, isDeviceRegistered, getConnectionStatus, getBridgeHeal
 export async function initCommand(options: {
   preset?: string;
   mlEnabled?: boolean;
+  skipScan?: boolean;
   force?: boolean;
 }): Promise<void> {
-  console.log(chalk.bold('\n🛡️  Safe Mode Initialization\n'));
+  console.log(chalk.bold('\n  Safe Mode Initialization\n'));
 
   // 1. Detect MCP clients
-  const spinner = ora('Detecting MCP clients...').start();
+  const detectSpinner = ora('Detecting MCP clients...').start();
   const clients = ConfigLoader.detectMCPClients();
-  spinner.stop();
+  detectSpinner.stop();
 
   if (clients.length === 0) {
     console.log(chalk.yellow('  No MCP clients detected.'));
@@ -46,42 +49,61 @@ export async function initCommand(options: {
     console.log();
   }
 
-  // 2. Select preset
+  // 2. Create directories (needed before scan)
+  ConfigLoader.ensureDirectories();
+
+  // 3. Run first-run scanner BEFORE preset selection (unless --skip-scan)
+  if (!options.skipScan) {
+  const scanSpinner = ora('Scanning project for security issues...').start();
+  const scanner = new FirstRunScanner();
+  const scanResults = await scanner.scan();
+  scanSpinner.stop();
+
+  if (scanResults.findings.length > 0) {
+    const maxDisplay = 10;
+    const displayed = scanResults.findings.slice(0, maxDisplay);
+    const remaining = scanResults.findings.length - maxDisplay;
+
+    // Box-formatted output for findings
+    console.log();
+    console.log('  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510');
+    console.log(`  \u2502  ${chalk.yellow.bold('Safe Mode found issues in your setup')}        \u2502`);
+    console.log('  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518');
+    console.log();
+
+    for (const finding of displayed) {
+      const label = formatFindingType(finding.type);
+      const location = finding.path ? chalk.gray(finding.path) : '';
+      console.log(`    ${chalk.yellow(label.padEnd(22))} ${location}`);
+    }
+
+    if (remaining > 0) {
+      console.log(chalk.gray(`    ... and ${remaining} more`));
+    }
+
+    console.log();
+    console.log(chalk.bold('  Safe Mode will prevent these from leaving your machine.'));
+  } else {
+    console.log(chalk.green('  \u2713 Project scan complete \u2014 no exposed secrets found'));
+    console.log(chalk.gray('    Safe Mode will keep it that way.'));
+  }
+  console.log();
+  } // end !options.skipScan
+
+  // 4. Select preset
   const preset = (options.preset as PresetName) || 'coding';
   console.log(chalk.bold(`  Preset: ${preset}`));
   console.log(chalk.gray(`    Run 'safemode init --preset <name>' to change`));
   console.log(chalk.gray('    Available: yolo, coding, personal, trading, strict'));
   console.log();
 
-  // 3. Create directories
-  ConfigLoader.ensureDirectories();
-
-  // 4. Write default config if needed
+  // 5. Write default config if needed
   const configPath = CONFIG_PATHS.personalConfig;
   if (!fs.existsSync(configPath) || options.force) {
     ConfigLoader.writeDefaultConfig(preset);
-    console.log(chalk.green(`  ✓ Created config: ${configPath}`));
+    console.log(chalk.green(`  \u2713 Created config: ${configPath}`));
   } else {
     console.log(chalk.gray(`  Config exists: ${configPath}`));
-  }
-
-  // 5. Run first-run scanner
-  console.log();
-  console.log(chalk.bold('  Running security scan...'));
-
-  const scanner = new FirstRunScanner();
-  const scanResults = await scanner.scan();
-
-  if (scanResults.findings.length > 0) {
-    console.log(chalk.yellow(`\n  ⚠️  Found ${scanResults.findings.length} potential issues:`));
-    for (const finding of scanResults.findings.slice(0, 5)) {
-      console.log(`    • ${finding.type}: ${finding.description}`);
-    }
-    if (scanResults.findings.length > 5) {
-      console.log(chalk.gray(`    ... and ${scanResults.findings.length - 5} more`));
-    }
-  } else {
-    console.log(chalk.green('  ✓ No issues found'));
   }
 
   // 6. Patch MCP configs if clients found
@@ -93,24 +115,58 @@ export async function initCommand(options: {
       try {
         const patched = patchMCPConfig(client.path);
         if (patched) {
-          console.log(chalk.green(`  ✓ Patched ${client.name}`));
+          console.log(chalk.green(`  \u2713 Patched ${client.name}`));
         } else {
           console.log(chalk.gray(`  - ${client.name} (no changes needed)`));
         }
       } catch (error) {
-        console.log(chalk.red(`  ✗ Failed to patch ${client.name}: ${(error as Error).message}`));
+        console.log(chalk.red(`  \u2717 Failed to patch ${client.name}: ${(error as Error).message}`));
+      }
+    }
+  }
+
+  // 7. Install IDE hooks (Claude Code, Cursor, Windsurf)
+  console.log();
+  console.log(chalk.bold('  Installing IDE hooks...'));
+  const installer = getHookInstaller();
+  const hookTargets: Array<{ name: string; method: () => Promise<void>; check: string }> = [
+    { name: 'Claude Code', method: () => installer.installClaudeCode(), check: path.join(os.homedir(), '.claude') },
+    { name: 'Cursor', method: () => installer.installCursor(), check: path.join(os.homedir(), '.cursor') },
+    { name: 'Windsurf', method: () => installer.installWindsurf(), check: path.join(os.homedir(), '.codeium', 'windsurf') },
+  ];
+
+  for (const target of hookTargets) {
+    if (fs.existsSync(target.check)) {
+      try {
+        await target.method();
+        console.log(chalk.green(`  \u2713 ${target.name} hooks installed`));
+      } catch (error) {
+        console.log(chalk.yellow(`  ! ${target.name} hooks failed: ${(error as Error).message}`));
       }
     }
   }
 
   console.log();
-  console.log(chalk.green.bold('  ✓ Safe Mode initialized!'));
+  console.log(chalk.green.bold('  \u2713 Safe Mode initialized!'));
   console.log();
   console.log(chalk.gray('  Next steps:'));
   console.log('    1. Restart your MCP clients');
   console.log('    2. Run `safemode doctor` to verify installation');
   console.log('    3. Run `safemode activity` to monitor tool calls');
   console.log();
+}
+
+/**
+ * Format finding type for display (never shows actual secret values)
+ */
+function formatFindingType(type: string): string {
+  switch (type) {
+    case 'secret': return 'Secret exposed';
+    case 'env': return 'Env var exposed';
+    case 'permission': return 'Permission issue';
+    case 'config': return 'Config issue';
+    default: return type;
+  }
 }
 
 // ============================================================================
@@ -179,11 +235,11 @@ export async function doctorCommand(): Promise<void> {
 }
 
 // ============================================================================
-// Restore Command
+// Uninstall Command (formerly "restore" — restores MCP configs)
 // ============================================================================
 
-export async function restoreCommand(): Promise<void> {
-  console.log(chalk.bold('\n🔄 Restoring original MCP configurations\n'));
+export async function uninstallCommand(): Promise<void> {
+  console.log(chalk.bold('\n  Restoring original MCP configurations\n'));
 
   const clients = ConfigLoader.detectMCPClients();
 
@@ -196,12 +252,12 @@ export async function restoreCommand(): Promise<void> {
     try {
       const restored = restoreMCPConfig(client.path);
       if (restored) {
-        console.log(chalk.green(`  ✓ Restored ${client.name}`));
+        console.log(chalk.green(`  \u2713 Restored ${client.name}`));
       } else {
         console.log(chalk.gray(`  - ${client.name} (not patched)`));
       }
     } catch (error) {
-      console.log(chalk.red(`  ✗ Failed to restore ${client.name}: ${(error as Error).message}`));
+      console.log(chalk.red(`  \u2717 Failed to restore ${client.name}: ${(error as Error).message}`));
     }
   }
 
@@ -211,12 +267,143 @@ export async function restoreCommand(): Promise<void> {
 }
 
 // ============================================================================
+// Restore Command (Time Machine)
+// ============================================================================
+
+export async function restoreCommand(options: {
+  latest?: boolean;
+  list?: boolean;
+  session?: string;
+  time?: string;
+}): Promise<void> {
+  const { getSnapshotStore } = await import('../timemachine/index.js');
+  const store = getSnapshotStore();
+
+  // List mode
+  if (options.list) {
+    console.log(chalk.bold('\n  Available Restore Points\n'));
+
+    const sessions = store.getRecentSessions(20);
+    if (sessions.length === 0) {
+      console.log(chalk.gray('  No snapshots found.'));
+      console.log(chalk.gray('  Snapshots are created when Safe Mode intercepts file modifications.'));
+      console.log();
+      store.close();
+      return;
+    }
+
+    console.log(chalk.gray('  Session ID              Files   Snapshots   Time'));
+    console.log(chalk.gray('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500'));
+
+    for (const session of sessions) {
+      const time = new Date(session.latestAt).toLocaleString();
+      console.log(
+        `  ${session.sessionId.padEnd(24)} ${String(session.fileCount).padEnd(8)} ${String(session.snapshotCount).padEnd(12)} ${time}`
+      );
+    }
+    console.log();
+    console.log(chalk.gray('  Use `safemode restore -s <session_id>` to restore a specific session'));
+    console.log();
+    store.close();
+    return;
+  }
+
+  // Find session to restore
+  let sessionId: string | undefined;
+
+  if (options.session) {
+    sessionId = options.session;
+  } else if (options.time) {
+    // Find closest session to the given time
+    const targetTime = parseTimeArg(options.time);
+    if (!targetTime) {
+      console.log(chalk.red(`  Invalid time format: ${options.time}`));
+      console.log(chalk.gray('  Use HH:MM format (e.g., 14:30)'));
+      store.close();
+      return;
+    }
+    const sessions = store.getRecentSessions(100);
+    let closest: { sessionId: string; diff: number } | null = null;
+    for (const s of sessions) {
+      const sessionTime = new Date(s.latestAt).getTime();
+      const diff = Math.abs(sessionTime - targetTime.getTime());
+      if (!closest || diff < closest.diff) {
+        closest = { sessionId: s.sessionId, diff };
+      }
+    }
+    if (closest) {
+      sessionId = closest.sessionId;
+    }
+  } else {
+    // Default: most recent session
+    const sessions = store.getRecentSessions(1);
+    if (sessions.length > 0) {
+      sessionId = sessions[0]!.sessionId;
+    }
+  }
+
+  if (!sessionId) {
+    console.log(chalk.gray('\n  No snapshots found to restore.\n'));
+    store.close();
+    return;
+  }
+
+  // Get summary before restoring
+  const summary = store.getSessionSummary(sessionId);
+  if (summary.totalSnapshots === 0) {
+    console.log(chalk.yellow(`\n  No snapshots found for session: ${sessionId}\n`));
+    store.close();
+    return;
+  }
+
+  console.log(chalk.bold(`\n  Restoring session: ${sessionId}`));
+  console.log(chalk.gray(`  ${summary.uniqueFiles} files, ${summary.rollbackableCount} rollbackable snapshots`));
+  console.log();
+
+  const spinner = ora('Restoring files...').start();
+  const result = store.rollbackSession(sessionId);
+  spinner.stop();
+
+  if (result.restoredFiles.length > 0) {
+    console.log(chalk.green(`  \u2713 Restored ${result.restoredFiles.length} file(s):`));
+    for (const file of result.restoredFiles.slice(0, 10)) {
+      console.log(chalk.gray(`    ${file}`));
+    }
+    if (result.restoredFiles.length > 10) {
+      console.log(chalk.gray(`    ... and ${result.restoredFiles.length - 10} more`));
+    }
+  }
+
+  if (result.failedFiles.length > 0) {
+    console.log(chalk.red(`  \u2717 Failed to restore ${result.failedFiles.length} file(s):`));
+    for (const f of result.failedFiles.slice(0, 5)) {
+      console.log(chalk.gray(`    ${f.path}: ${f.error}`));
+    }
+  }
+
+  console.log();
+  store.close();
+}
+
+function parseTimeArg(timeStr: string): Date | null {
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = parseInt(match[1]!, 10);
+  const minutes = parseInt(match[2]!, 10);
+  if (hours > 23 || minutes > 59) return null;
+  const now = new Date();
+  now.setHours(hours, minutes, 0, 0);
+  return now;
+}
+
+// ============================================================================
 // History Command
 // ============================================================================
 
 export async function historyCommand(options: {
   limit?: number;
   outcome?: string;
+  json?: boolean;
 }): Promise<void> {
   const store = getEventStore();
   const limit = options.limit || 20;
@@ -226,6 +413,12 @@ export async function historyCommand(options: {
     events = store.getEventsByOutcome(options.outcome, limit);
   } else {
     events = store.getRecentEvents(limit);
+  }
+
+  if (options.json) {
+    console.log(JSON.stringify(events, null, 2));
+    closeEventStore();
+    return;
   }
 
   if (events.length === 0) {
@@ -966,4 +1159,161 @@ export async function cloudStatusCommand(): Promise<void> {
   console.log(`    Error count:  ${health.errorCount}`);
 
   console.log();
+}
+
+// ============================================================================
+// Version Command
+// ============================================================================
+
+export async function versionCommand(): Promise<void> {
+  const pkgPath = path.resolve(
+    path.dirname(new URL(import.meta.url).pathname),
+    '../../package.json'
+  );
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    console.log(`safemode v${pkg.version}`);
+  } catch {
+    console.log('safemode v0.1.0');
+  }
+}
+
+// ============================================================================
+// Status Command
+// ============================================================================
+
+export async function statusCommand(): Promise<void> {
+  console.log(chalk.bold('\n  Safe Mode Status\n'));
+
+  // Active preset
+  const configLoader = new ConfigLoader();
+  let preset = 'unknown';
+  try {
+    const config = await configLoader.load();
+    preset = config.preset;
+  } catch {
+    // Config not initialized
+  }
+  console.log(`  Preset:     ${chalk.bold(preset)}`);
+  console.log();
+
+  // Hook status per surface
+  const installer = getHookInstaller();
+  const installedIDEs = installer.getInstalledIDEs();
+
+  console.log(chalk.bold('  Surface          Hook Status'));
+  console.log(chalk.gray('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500'));
+
+  if (installedIDEs.length === 0) {
+    console.log(chalk.gray('  No supported IDEs detected'));
+  } else {
+    for (const ide of installedIDEs) {
+      const status = await installer.verify(ide.ide);
+      const icon = status.installed ? chalk.green('\u2713') : chalk.yellow('\u2717');
+      const label = status.installed ? 'installed' : 'not installed';
+      console.log(`  ${ide.name.padEnd(17)} ${icon} ${label}`);
+    }
+  }
+
+  // Cloud connection
+  console.log();
+  if (isDeviceRegistered()) {
+    const connStatus = getConnectionStatus();
+    const icon = connStatus.state === 'connected' ? chalk.green('\u2713') : chalk.yellow('\u2717');
+    console.log(`  Cloud:      ${icon} ${connStatus.state}`);
+  } else {
+    console.log(`  Cloud:      ${chalk.gray('not connected')}`);
+  }
+
+  console.log();
+}
+
+// ============================================================================
+// Preset Command
+// ============================================================================
+
+const VALID_PRESETS: PresetName[] = ['yolo', 'coding', 'personal', 'trading', 'strict'];
+
+export async function presetCommand(name: string): Promise<void> {
+  if (!VALID_PRESETS.includes(name as PresetName)) {
+    console.log(chalk.red(`  Invalid preset: ${name}`));
+    console.log(chalk.gray(`  Available: ${VALID_PRESETS.join(', ')}`));
+    return;
+  }
+
+  const configPath = CONFIG_PATHS.personalConfig;
+
+  if (!fs.existsSync(configPath)) {
+    console.log(chalk.yellow('  Config not found. Run `safemode init` first.'));
+    return;
+  }
+
+  try {
+    const content = fs.readFileSync(configPath, 'utf8');
+    const config = yaml.load(content) as Record<string, unknown>;
+    config.preset = name;
+    fs.writeFileSync(configPath, yaml.dump(config));
+    console.log(chalk.green(`  Preset switched to: ${name}`));
+  } catch (error) {
+    console.log(chalk.red(`  Failed to update config: ${(error as Error).message}`));
+  }
+}
+
+// ============================================================================
+// Allow Command (false positive escape hatch)
+// ============================================================================
+
+export async function allowCommand(
+  action: string,
+  options: { once?: boolean; always?: boolean }
+): Promise<void> {
+  const knobs = ACTION_KNOB_MAP[action];
+  if (!knobs) {
+    console.log(chalk.red(`  Invalid action: ${action}`));
+    console.log(chalk.gray(`  Valid actions: ${VALID_ACTIONS.join(', ')}`));
+    return;
+  }
+  const mode = options.always ? 'always' : 'once';
+
+  if (mode === 'always') {
+    // Write permanent override to config.yaml
+    const configPath = CONFIG_PATHS.personalConfig;
+    if (!fs.existsSync(configPath)) {
+      console.log(chalk.yellow('  Config not found. Run `safemode init` first.'));
+      return;
+    }
+
+    console.log(chalk.yellow.bold('  Warning: This permanently changes your config.'));
+    console.log(chalk.gray(`  Knobs affected: ${knobs.join(', ')}`));
+
+    try {
+      const content = fs.readFileSync(configPath, 'utf8');
+      const config = yaml.load(content) as Record<string, unknown>;
+
+      // Add overrides section if missing
+      if (!config.overrides || typeof config.overrides !== 'object') {
+        config.overrides = {};
+      }
+      const overrides = config.overrides as Record<string, Record<string, string>>;
+
+      // Set all related knobs to 'allow' under a flat overrides section
+      if (!overrides.allowed) {
+        overrides.allowed = {};
+      }
+      for (const knob of knobs) {
+        overrides.allowed[knob] = 'allow';
+      }
+
+      fs.writeFileSync(configPath, yaml.dump(config));
+      console.log(chalk.green(`  \u2713 Permanently allowed: ${action}`));
+    } catch (error) {
+      console.log(chalk.red(`  Failed to update config: ${(error as Error).message}`));
+    }
+  } else {
+    // Write session override
+    saveSessionOverride(action);
+    console.log(chalk.green(`  \u2713 Allowed for this session: ${action}`));
+    console.log(chalk.gray(`  Knobs affected: ${knobs.join(', ')}`));
+    console.log(chalk.gray('  Override will be cleared on next `safemode init`'));
+  }
 }

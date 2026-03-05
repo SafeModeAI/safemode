@@ -19,6 +19,7 @@ import {
   initCommand,
   doctorCommand,
   restoreCommand,
+  uninstallCommand,
   historyCommand,
   summaryCommand,
   activityCommand,
@@ -29,7 +30,12 @@ import {
   disconnectCommand,
   syncCommand,
   cloudStatusCommand,
+  versionCommand,
+  statusCommand,
+  presetCommand,
+  allowCommand,
 } from '../src/cli/commands.js';
+import { phoneCommand } from '../src/cli/phone.js';
 import { ConfigLoader } from '../src/config/index.js';
 import { getEventStore } from '../src/store/index.js';
 import { CETClassifier } from '../src/cet/index.js';
@@ -56,12 +62,14 @@ program
   .command('init')
   .description('Initialize Safe Mode')
   .option('-p, --preset <preset>', 'Preset (yolo, coding, personal, trading, strict)', 'coding')
-  .option('--ml', 'Enable ML engines (downloads ~85MB)')
+  .option('--ml', 'Enable ML engines (downloads ~85MB, opt-in)')
+  .option('--skip-scan', 'Skip first-run project scan')
   .option('-f, --force', 'Overwrite existing config')
   .action(async (options) => {
     await initCommand({
       preset: options.preset,
       mlEnabled: options.ml,
+      skipScan: options.skipScan,
       force: options.force,
     });
   });
@@ -174,14 +182,34 @@ program
   });
 
 // ============================================================================
-// Restore Command
+// Restore Command (Time Machine)
 // ============================================================================
 
 program
-  .command('restore')
-  .description('Restore original MCP configurations')
+  .command('restore [timestamp]')
+  .description('Restore files from Time Machine snapshots')
+  .option('--latest', 'Restore most recent session (default)')
+  .option('--list', 'List available restore points')
+  .option('-s, --session <id>', 'Restore a specific session')
+  .option('-t, --time <HH:MM>', 'Find closest session to timestamp')
+  .action(async (timestamp, options) => {
+    await restoreCommand({
+      latest: options.latest,
+      list: options.list,
+      session: options.session,
+      time: options.time || timestamp,
+    });
+  });
+
+// ============================================================================
+// Uninstall Command
+// ============================================================================
+
+program
+  .command('uninstall')
+  .description('Restore original MCP configurations and remove hooks')
   .action(async () => {
-    await restoreCommand();
+    await uninstallCommand();
   });
 
 // ============================================================================
@@ -193,10 +221,12 @@ program
   .description('View event history')
   .option('-l, --limit <number>', 'Number of events', '20')
   .option('-o, --outcome <outcome>', 'Filter by outcome (block, alert, allowed)')
+  .option('--json', 'Output as JSON')
   .action(async (options) => {
     await historyCommand({
       limit: parseInt(options.limit, 10),
       outcome: options.outcome,
+      json: options.json,
     });
   });
 
@@ -311,6 +341,161 @@ program
   .action(async () => {
     await cloudStatusCommand();
   });
+
+// ============================================================================
+// Version Command (explicit, beyond commander's --version)
+// ============================================================================
+
+program
+  .command('version')
+  .description('Show Safe Mode version')
+  .action(async () => {
+    await versionCommand();
+  });
+
+// ============================================================================
+// Status Command
+// ============================================================================
+
+program
+  .command('status')
+  .description('Show Safe Mode status (hooks, preset, cloud)')
+  .action(async () => {
+    await statusCommand();
+  });
+
+// ============================================================================
+// Preset Command
+// ============================================================================
+
+program
+  .command('preset <name>')
+  .description('Switch active preset (yolo, coding, personal, trading, strict)')
+  .action(async (name) => {
+    await presetCommand(name);
+  });
+
+// ============================================================================
+// Allow Command
+// ============================================================================
+
+program
+  .command('allow <action>')
+  .description('Allow a blocked action (secrets, pii, delete, write, git, network, packages, commands)')
+  .option('--once', 'Allow for this session only (default)')
+  .option('--always', 'Permanently allow in config')
+  .action(async (action, options) => {
+    await allowCommand(action, { once: options.once, always: options.always });
+  });
+
+// ============================================================================
+// Phone Command
+// ============================================================================
+
+program
+  .command('phone')
+  .description('Configure phone notifications (Telegram/Discord)')
+  .option('--telegram', 'Set up Telegram notifications')
+  .option('--discord', 'Set up Discord notifications')
+  .option('--test', 'Test current notification setup')
+  .option('--disable', 'Disable notifications')
+  .action(async (options) => {
+    await phoneCommand({
+      telegram: options.telegram,
+      discord: options.discord,
+      test: options.test,
+      disable: options.disable,
+    });
+  });
+
+// ============================================================================
+// Hook Command (invoked by platform hooks: safemode hook pre/post/cursor-pre/cursor-post)
+// ============================================================================
+
+import { runGovernancePipeline, type Surface, type HookInput } from '../src/hooks/hook-runner.js';
+import { closeEventStore } from '../src/store/index.js';
+
+const hookCmd = program
+  .command('hook')
+  .description('Run governance hook (called by platform hook configs)');
+
+async function runHook(surface: Surface): Promise<void> {
+  // Read input from stdin
+  let inputData = '';
+  if (!process.stdin.isTTY) {
+    inputData = await new Promise<string>((resolve) => {
+      const chunks: Buffer[] = [];
+      let resolved = false;
+      const done = (data: string) => { if (!resolved) { resolved = true; clearTimeout(timer); resolve(data); } };
+      process.stdin.on('data', (chunk: Buffer) => chunks.push(chunk));
+      process.stdin.on('end', () => done(Buffer.concat(chunks).toString('utf8')));
+      const timer = setTimeout(() => done(Buffer.concat(chunks).toString('utf8')), 2000);
+    });
+  }
+
+  let input: HookInput;
+  try {
+    const parsed = JSON.parse(inputData || '{}');
+    input = {
+      toolName: parsed.toolName || parsed.tool_name || 'unknown',
+      serverName: parsed.serverName || parsed.server_name || 'unknown',
+      parameters: parsed.parameters || parsed.tool_input || parsed.arguments || parsed.input || {},
+      sessionId: parsed.sessionId || parsed.session_id,
+    };
+  } catch {
+    // Fail open on parse error — exit 0, no output
+    return;
+  }
+
+  try {
+    const result = await runGovernancePipeline(input, surface);
+
+    // Format output per surface
+    if (surface === 'claude-code') {
+      // Claude Code PreToolUse: hookSpecificOutput with permissionDecision
+      if (result.decision === 'block') {
+        process.stdout.write(JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'deny',
+            permissionDecisionReason: result.reason || 'Blocked by Safe Mode',
+          },
+        }) + '\n');
+      }
+      // Allow = exit 0 with no output
+    } else if (surface === 'claude-code-post') {
+      // PostToolUse: no blocking capability, just exit 0
+    } else if (surface.startsWith('cursor')) {
+      if (result.decision === 'block') {
+        process.stdout.write(JSON.stringify({
+          continue: false,
+          permission: 'deny',
+          userMessage: `Blocked by Safe Mode: ${result.reason}`,
+          agentMessage: 'This action violates the active governance policy',
+        }) + '\n');
+      } else {
+        process.stdout.write(JSON.stringify({ continue: true }) + '\n');
+      }
+    } else if (surface.startsWith('windsurf')) {
+      if (result.decision === 'block') {
+        process.stdout.write(JSON.stringify({ blocked: true, reason: result.reason }) + '\n');
+        process.exitCode = 2;
+      }
+    }
+  } catch (err) {
+    process.stderr.write(`[Safe Mode] Hook error: ${(err as Error).message}\n`);
+    // Fail open — exit 0, no output
+  } finally {
+    try { closeEventStore(); } catch { /* ignore */ }
+  }
+}
+
+hookCmd.command('pre').description('Pre-tool-use hook (Claude Code)').action(() => runHook('claude-code'));
+hookCmd.command('post').description('Post-tool-use hook (Claude Code)').action(() => runHook('claude-code-post'));
+hookCmd.command('cursor-pre').description('Pre-tool-use hook (Cursor)').action(() => runHook('cursor'));
+hookCmd.command('cursor-post').description('Post-tool-use hook (Cursor)').action(() => runHook('cursor-post'));
+hookCmd.command('windsurf-pre').description('Pre-tool-use hook (Windsurf)').action(() => runHook('windsurf'));
+hookCmd.command('windsurf-post').description('Post-tool-use hook (Windsurf)').action(() => runHook('windsurf-post'));
 
 // ============================================================================
 // Parse and Run

@@ -53,6 +53,7 @@ export type KnobCategory =
   | 'data'
   | 'browser'
   | 'physical'
+  | 'data_protection'
   | 'custom';
 
 // ============================================================================
@@ -601,6 +602,14 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
       overridable: true,
       category: 'package',
     },
+    {
+      id: 'package_audit',
+      name: 'Package Audit',
+      description: 'Run package security audits',
+      default: 'allow',
+      overridable: true,
+      category: 'package',
+    },
   ],
 
   // Scheduling (3 knobs)
@@ -812,6 +821,50 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
       default: 'allow',
       overridable: true,
       category: 'physical',
+    },
+  ],
+
+  // Data Protection (5 knobs)
+  data_protection: [
+    {
+      id: 'block_secrets',
+      name: 'Block Secrets',
+      description: 'Block tool calls that would expose secrets (API keys, tokens)',
+      default: 'block',
+      overridable: true,
+      category: 'data_protection',
+    },
+    {
+      id: 'block_pii',
+      name: 'Block PII',
+      description: 'Block tool calls that would expose personally identifiable information',
+      default: 'block',
+      overridable: true,
+      category: 'data_protection',
+    },
+    {
+      id: 'block_api_keys',
+      name: 'Block API Keys',
+      description: 'Block tool calls that would expose API keys',
+      default: 'block',
+      overridable: true,
+      category: 'data_protection',
+    },
+    {
+      id: 'block_credentials',
+      name: 'Block Credentials',
+      description: 'Block tool calls that would expose credentials (passwords, auth tokens)',
+      default: 'block',
+      overridable: true,
+      category: 'data_protection',
+    },
+    {
+      id: 'block_tokens',
+      name: 'Block Tokens',
+      description: 'Block tool calls that would expose bearer/session/refresh tokens',
+      default: 'block',
+      overridable: true,
+      category: 'data_protection',
     },
   ],
 

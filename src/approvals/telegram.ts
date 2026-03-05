@@ -304,6 +304,18 @@ export class TelegramApprovalProvider {
   }
 
   /**
+   * Send a one-way notification (no approval needed)
+   */
+  async sendNotification(title: string, body: string): Promise<boolean> {
+    try {
+      await this.sendMessage(`*${title}*\n\n${body}`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Test connection by sending a test message
    */
   async testConnection(): Promise<boolean> {
