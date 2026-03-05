@@ -333,14 +333,15 @@ export class CETClassifier {
       return { category: 'filesystem', action: 'delete', risk: 'critical' };
     }
 
-    // Git operations → git category
+    // Git operations — only reclassify dangerous ones
     if (firstWord === 'git') {
       const subCmd = trimmed.split(/\s+/)[1];
+      if (subCmd === 'push' && trimmed.includes('--force')) return { category: 'git', action: 'delete', risk: 'critical' };
       if (subCmd === 'push') return { category: 'git', action: 'write', risk: 'medium' };
-      if (subCmd === 'commit') return { category: 'git', action: 'write', risk: 'low' };
       if (subCmd === 'branch' && trimmed.includes('-D')) return { category: 'git', action: 'delete', risk: 'high' };
       if (subCmd === 'reset' && trimmed.includes('--hard')) return { category: 'git', action: 'delete', risk: 'high' };
-      return { category: 'git', action: 'read' };
+      // Safe git operations (add, commit, status, diff, log, etc.) — don't reclassify
+      return null;
     }
 
     // Package installs → package category

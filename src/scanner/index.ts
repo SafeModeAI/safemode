@@ -32,18 +32,25 @@ export interface ScanResult {
 // Secret Patterns
 // ============================================================================
 
+// Shallow patterns — .env files up to 3 levels deep (catches project dirs),
+// other secret files at 0-1 levels only.
+// .pem and .key are NOT scanned via glob (too many false positives from
+// version managers, test fixtures, etc.). They're checked in scanHomeDotfiles
+// for well-known secret locations only (~/.ssh, ~/.aws).
 const SECRET_FILE_PATTERNS = [
-  '**/.env',
-  '**/.env.*',
-  '**/credentials.json',
-  '**/secrets.json',
-  '**/config.json',
-  '**/*.pem',
-  '**/*.key',
-  '**/id_rsa',
-  '**/id_ed25519',
-  '**/.aws/credentials',
-  '**/.npmrc',
+  '.env',
+  '.env.*',
+  '*/.env',
+  '*/.env.*',
+  '*/*/.env',
+  '*/*/.env.*',
+  '*/*/*/.env',
+  '*/*/*/.env.*',
+  'credentials.json',
+  '*/credentials.json',
+  'secrets.json',
+  '*/secrets.json',
+  '.npmrc',
 ];
 
 const SECRET_CONTENT_PATTERNS = [
@@ -122,13 +129,19 @@ export class FirstRunScanner {
           nodir: true,
           dot: true,
           ignore: [
+            'node_modules/**',
+            '.git/**',
+            '.pyenv/**',
+            '.rbenv/**',
+            '.nvm/**',
+            '.cargo/**',
+            '.rustup/**',
+            'Library/**',
+            '.Trash/**',
+            '.cache/**',
             '**/node_modules/**',
-            '**/.git/**',
-            '**/dist/**',
-            '**/build/**',
-            '**/.cache/**',
-            '**/Library/**',
-            '**/.Trash/**',
+            '**/test/certdata/**',
+            '**/testdata/**',
           ],
         });
 
@@ -181,6 +194,8 @@ export class FirstRunScanner {
       path.join(home, '.env.local'),
       path.join(home, '.aws', 'credentials'),
       path.join(home, '.npmrc'),
+      path.join(home, '.ssh', 'id_rsa'),
+      path.join(home, '.ssh', 'id_ed25519'),
     ];
 
     for (const file of dotfiles) {
