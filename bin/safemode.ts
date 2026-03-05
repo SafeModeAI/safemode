@@ -461,8 +461,14 @@ async function runHook(surface: Surface): Promise<void> {
             permissionDecisionReason: result.reason || 'Blocked by Safe Mode',
           },
         }) + '\n');
+      } else {
+        process.stdout.write(JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'allow',
+          },
+        }) + '\n');
       }
-      // Allow = exit 0 with no output
     } else if (surface === 'claude-code-post') {
       // PostToolUse: no blocking capability, just exit 0
     } else if (surface.startsWith('cursor')) {

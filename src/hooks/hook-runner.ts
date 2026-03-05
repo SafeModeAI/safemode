@@ -292,7 +292,6 @@ function formatOutput(
   surface: Surface
 ): string {
   // Claude Code PreToolUse: hookSpecificOutput with permissionDecision
-  // Allow = exit 0 with no output; Block = deny with reason
   if (surface === 'claude-code') {
     if (result.decision === 'block') {
       return JSON.stringify({
@@ -303,7 +302,12 @@ function formatOutput(
         },
       });
     }
-    return ''; // exit 0, no output = allow
+    return JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'allow',
+      },
+    });
   }
 
   // Claude Code PostToolUse: no blocking capability, just exit 0
