@@ -432,11 +432,13 @@ export class ConfigLoader {
   static writeDefaultConfig(preset: PresetName): void {
     ConfigLoader.ensureDirectories();
 
-    const config = {
+    const presetDef = PRESET_DEFAULTS[preset] || PRESET_DEFAULTS.coding;
+    const config: Record<string, unknown> = {
       version: '1.0',
       preset,
-      overrides: {},
-      budget: PRESET_DEFAULTS[preset].budget,
+      approve_fallback: presetDef.approve_fallback || 'block',
+      overrides: presetDef.overrides || {},
+      budget: presetDef.budget,
     };
 
     fs.writeFileSync(PERSONAL_CONFIG, yaml.dump(config));

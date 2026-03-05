@@ -110,6 +110,68 @@ const KNOWN_TOOLS: KnownToolRegistry = {
     category: 'terminal',
     risk: 'critical',
   },
+
+  // Claude Code native tool names
+  'Bash': {
+    action: 'execute',
+    scope: 'system',
+    category: 'terminal',
+    risk: 'critical',
+  },
+  'Read': {
+    action: 'read',
+    scope_from: 'parameters.file_path',
+    category: 'filesystem',
+    risk: 'low',
+  },
+  'Write': {
+    action: 'write',
+    scope_from: 'parameters.file_path',
+    category: 'filesystem',
+    risk_from_scope: true,
+  },
+  'Edit': {
+    action: 'write',
+    scope_from: 'parameters.file_path',
+    category: 'filesystem',
+    risk_from_scope: true,
+  },
+  'Glob': {
+    action: 'search',
+    category: 'filesystem',
+    risk: 'low',
+  },
+  'Grep': {
+    action: 'search',
+    category: 'filesystem',
+    risk: 'low',
+  },
+
+  // Cursor tool names
+  'run_terminal_command': {
+    action: 'execute',
+    scope: 'system',
+    category: 'terminal',
+    risk: 'critical',
+  },
+  'edit_file': {
+    action: 'write',
+    scope_from: 'parameters.target_file',
+    category: 'filesystem',
+    risk_from_scope: true,
+  },
+  'read_file': {
+    action: 'read',
+    scope_from: 'parameters.target_file',
+    category: 'filesystem',
+    risk: 'low',
+  },
+  'delete_file': {
+    action: 'delete',
+    scope_from: 'parameters.target_file',
+    category: 'filesystem',
+    risk_from_scope: true,
+  },
 };
 
 // ============================================================================
@@ -231,15 +293,73 @@ export class CETClassifier {
       ? String(this.getNestedValue(params, entry.scope_from) || '')
       : '';
 
+    let category = entry.category;
+
+    // Refine terminal commands by analyzing command content
+    if (category === 'terminal' && action === 'execute') {
+      const cmd = String(params.command || params.cmd || '');
+      const refined = this.refineTerminalCommand(cmd);
+      if (refined) {
+        category = refined.category;
+        action = refined.action;
+        risk = refined.risk || risk;
+      }
+    }
+
     return {
       action,
       target,
       scope,
       risk,
-      category: entry.category,
+      category,
       confidence: 1.0,
       source: 'registry',
     };
+  }
+
+  /**
+   * Analyze a shell command string and refine its classification.
+   * Reclassifies destructive commands (rm, chmod, etc.) as filesystem/delete
+   * so that knob gate file_delete and destructive_commands knobs apply.
+   */
+  private refineTerminalCommand(
+    cmd: string
+  ): { category: ToolCategory; action: ToolAction; risk?: RiskLevel } | null {
+    const trimmed = cmd.trim();
+    const firstWord = trimmed.split(/\s+/)[0]?.replace(/^.*\//, ''); // strip path prefix
+
+    // File deletion commands → filesystem/delete
+    if (firstWord === 'rm' || firstWord === 'rmdir' || firstWord === 'unlink') {
+      return { category: 'filesystem', action: 'delete', risk: 'critical' };
+    }
+
+    // Git operations → git category
+    if (firstWord === 'git') {
+      const subCmd = trimmed.split(/\s+/)[1];
+      if (subCmd === 'push') return { category: 'git', action: 'write', risk: 'medium' };
+      if (subCmd === 'commit') return { category: 'git', action: 'write', risk: 'low' };
+      if (subCmd === 'branch' && trimmed.includes('-D')) return { category: 'git', action: 'delete', risk: 'high' };
+      if (subCmd === 'reset' && trimmed.includes('--hard')) return { category: 'git', action: 'delete', risk: 'high' };
+      return { category: 'git', action: 'read' };
+    }
+
+    // Package installs → package category
+    if (firstWord === 'npm' || firstWord === 'yarn' || firstWord === 'pnpm' || firstWord === 'pip' || firstWord === 'pip3') {
+      const subCmd = trimmed.split(/\s+/)[1];
+      if (subCmd === 'install' || subCmd === 'add' || subCmd === 'i') {
+        return { category: 'package', action: 'create', risk: 'medium' };
+      }
+      if (subCmd === 'uninstall' || subCmd === 'remove' || subCmd === 'rm') {
+        return { category: 'package', action: 'delete', risk: 'medium' };
+      }
+    }
+
+    // Network commands → network category
+    if (firstWord === 'curl' || firstWord === 'wget') {
+      return { category: 'network', action: 'read', risk: 'medium' };
+    }
+
+    return null;
   }
 
   /**
