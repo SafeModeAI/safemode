@@ -5,7 +5,7 @@ Thanks for your interest in contributing! Safe Mode is Apache-2.0 licensed and w
 ## Setup
 
 ```bash
-git clone https://github.com/trustscope/safemode.git
+git clone https://github.com/SafeModeAI/safemode.git
 cd safemode
 npm install
 npm run build
@@ -74,7 +74,7 @@ All 252 tests must pass before merging. Do not reduce the test count.
 
 ## Reporting Issues
 
-File issues at https://github.com/trustscope/safemode/issues with:
+File issues at https://github.com/SafeModeAI/safemode/issues with:
 - Safe Mode version (`safemode version`)
 - IDE and version (Claude Code, Cursor, Windsurf)
 - Steps to reproduce
