@@ -42,6 +42,7 @@ export interface SafeModeConfig {
     max_session_cost: number;
     max_daily_cost?: number;
     alert_at: number;
+    cost_per_call?: number;
   };
 
   /** Approve fallback behavior */

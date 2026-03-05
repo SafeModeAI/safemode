@@ -38,7 +38,7 @@ export class CostExposureEngine implements DetectionEngine {
         confidence: 1.0,
         action: 'alert',
         details: {
-          reason: `Budget ${Math.round(percentage * 100)}% consumed ($${currentCost.toFixed(2)} of $${this.budgetCost})`,
+          reason: `Estimated budget ${Math.round(percentage * 100)}% consumed (~$${currentCost.toFixed(2)} of $${this.budgetCost})`,
           current_cost: currentCost,
           max_cost: this.budgetCost,
           percentage: percentage,

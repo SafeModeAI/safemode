@@ -83,7 +83,7 @@ async function initPipeline(): Promise<PipelineState> {
 // Session Management (SQLite-backed for cross-call state)
 // ============================================================================
 
-function getOrCreateSession(sessionId?: string): SessionState {
+function getOrCreateSession(sessionId?: string, costPerCall?: number): SessionState {
   const id = sessionId || `hook-${nanoid(8)}`;
 
   // Try to load from SQLite
@@ -91,11 +91,31 @@ function getOrCreateSession(sessionId?: string): SessionState {
   const recentEvents = store.getRecentEvents(100);
   const sessionEvents = recentEvents.filter(e => e.session_id === id);
 
-  // Reconstruct session state from events
+  // Reconstruct full session state from events in a single pass
   const signatures: ToolCallSignature[] = [];
   const callTimestamps: number[] = [];
+  const callCounts = new Map<string, number>();
+  const errorCounts = new Map<string, number>();
+  const latencyHistory = new Map<string, number[]>();
 
   for (const event of sessionEvents) {
+    const server = event.server_name || 'unknown';
+
+    // Per-server call counts (engines 7, 8)
+    callCounts.set(server, (callCounts.get(server) || 0) + 1);
+
+    // Per-server error counts (engine 7)
+    if (event.outcome === 'block' || event.outcome === 'error') {
+      errorCounts.set(server, (errorCounts.get(server) || 0) + 1);
+    }
+
+    // Per-server latency history (engine 6)
+    if (event.latency_ms) {
+      const hist = latencyHistory.get(server) || [];
+      hist.push(event.latency_ms);
+      latencyHistory.set(server, hist);
+    }
+
     if (event.tool_name) {
       const ts = event.timestamp ? new Date(event.timestamp).getTime() : Date.now();
       callTimestamps.push(ts);
@@ -107,17 +127,28 @@ function getOrCreateSession(sessionId?: string): SessionState {
     }
   }
 
+  // Per-minute call buckets (engine 8)
+  const minuteBuckets = new Map<number, number>();
+  for (const ts of callTimestamps) {
+    const minute = Math.floor(ts / 60000);
+    minuteBuckets.set(minute, (minuteBuckets.get(minute) || 0) + 1);
+  }
+
+  // Estimated session cost (engines 4, 14) — not actual API cost
+  const perCall = costPerCall ?? 0.01;
+  const estimatedCost = sessionEvents.length * perCall;
+
   return {
     session_id: id,
     started_at: new Date(),
     tool_call_count: sessionEvents.length,
-    session_cost_usd: 0,
+    session_cost_usd: estimatedCost,
     recent_signatures: signatures.slice(-100),
-    error_counts: new Map(),
-    call_counts: new Map(),
-    latency_history: new Map(),
+    error_counts: errorCounts,
+    call_counts: callCounts,
+    latency_history: latencyHistory,
     call_timestamps: callTimestamps,
-    calls_per_minute: [],
+    calls_per_minute: [...minuteBuckets.values()],
   };
 }
 
@@ -184,7 +215,7 @@ export async function runGovernancePipeline(
   }
 
   // 3. Run detection engines
-  const session = getOrCreateSession(input.sessionId);
+  const session = getOrCreateSession(input.sessionId, config.budget.cost_per_call);
   const engineResult = await engines.evaluate(
     toolName,
     serverName,

@@ -28,7 +28,7 @@ export class BudgetCap implements DetectionEngine {
         confidence: 1.0,
         action: 'block',
         details: {
-          reason: `Budget exceeded: $${currentCost.toFixed(2)} >= $${this.maxSessionCost} limit`,
+          reason: `Estimated budget exceeded: ~$${currentCost.toFixed(2)} >= $${this.maxSessionCost} limit`,
           current_cost: currentCost,
           max_cost: this.maxSessionCost,
         },
