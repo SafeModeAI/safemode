@@ -206,7 +206,7 @@ export interface EngineEvaluationResult {
  */
 export const ENGINE_ROUTING: Record<RiskLevel, number[]> = {
   low: [1, 2, 3, 4, 5, 6, 7, 8],
-  medium: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15],
+  medium: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   high: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   critical: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
 };

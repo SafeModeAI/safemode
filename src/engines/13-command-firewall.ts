@@ -25,6 +25,11 @@ const BLOCKED_PATTERNS: CommandPattern[] = [
     description: 'rm -rf / (disk wipe)',
   },
   {
+    pattern: /rm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)?(-[a-zA-Z]*f[a-zA-Z]*\s+)?\/(usr|var|etc|bin|sbin|lib|boot|sys|proc|dev)(\/|\s|$|;|\|)/i,
+    name: 'rm_system_dir',
+    description: 'rm -rf on system directory',
+  },
+  {
     pattern: /rm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)?(-[a-zA-Z]*f[a-zA-Z]*\s+)?\/\*/i,
     name: 'rm_root_glob',
     description: 'rm -rf /* (disk wipe)',
@@ -161,9 +166,78 @@ const BLOCKED_PATTERNS: CommandPattern[] = [
     description: 'Netcat reverse shell',
   },
   {
+    pattern: /nc\s+-[a-z]*(?:l[a-z]*e|e[a-z]*l)[a-z]*\s/i,
+    name: 'netcat_reverse_shell_combined',
+    description: 'Netcat reverse shell (combined flags)',
+  },
+  {
     pattern: /python[23]?\s+-c\s+.*socket\s*\(/i,
     name: 'python_socket_shell',
     description: 'Python socket shell',
+  },
+
+  // Destructive find commands
+  {
+    pattern: /find\s+\/\s+.*-delete/i,
+    name: 'find_root_delete',
+    description: 'find / -delete (recursive root deletion)',
+  },
+  {
+    pattern: /find\s+\/\s+.*-exec\s+rm/i,
+    name: 'find_root_exec_rm',
+    description: 'find / -exec rm (recursive root deletion)',
+  },
+
+  // Long-form rm flags
+  {
+    pattern: /rm\s+--recursive\s+--force\s+\//i,
+    name: 'rm_longform_root',
+    description: 'rm --recursive --force / (disk wipe)',
+  },
+
+  // Eval with dangerous content
+  {
+    pattern: /eval\s+.*(?:rm\s|mkfs|dd\s|curl.*\|\s*(?:bash|sh))/i,
+    name: 'eval_dangerous',
+    description: 'eval with dangerous command',
+  },
+
+  // Evasion: base64-encoded commands piped to shell
+  {
+    pattern: /base64\s+(-d|--decode)\s*\|\s*(bash|sh|zsh)/i,
+    name: 'base64_pipe_shell',
+    description: 'base64 decoded and piped to shell',
+  },
+  {
+    pattern: /\becho\b.*\|\s*base64\s+(-d|--decode)\s*\|\s*(bash|sh|zsh)/i,
+    name: 'echo_base64_pipe_shell',
+    description: 'echo | base64 -d | bash (encoded command execution)',
+  },
+
+  // Evasion: ANSI-C quoting ($'\x72\x6d' = rm)
+  {
+    pattern: /\$'(\\x[0-9a-f]{2}){2,}'/i,
+    name: 'ansi_c_hex_escape',
+    description: 'ANSI-C hex escape sequence (possible evasion)',
+  },
+
+  // Evasion: xxd/printf decode piped to shell
+  {
+    pattern: /(?:xxd\s+-r|printf\s+.*\\x)\s*.*\|\s*(bash|sh|zsh)/i,
+    name: 'hex_decode_pipe_shell',
+    description: 'Hex decode piped to shell (evasion)',
+  },
+
+  // Evasion: python/perl -e one-liner executing system commands
+  {
+    pattern: /python[23]?\s+-c\s+.*(?:os\.system|subprocess\b|exec)\s*[\.(]/i,
+    name: 'python_system_exec',
+    description: 'Python one-liner executing system commands',
+  },
+  {
+    pattern: /perl\s+-e\s+.*(?:system|exec)\s*\(/i,
+    name: 'perl_system_exec',
+    description: 'Perl one-liner executing system commands',
   },
 ];
 
@@ -177,14 +251,10 @@ export class CommandFirewall implements DetectionEngine {
   readonly description = 'Blocks dangerous shell commands (HARDCODED)';
 
   async evaluate(context: EngineContext): Promise<EngineResult> {
-    const { parameters, effect } = context;
+    const { parameters } = context;
 
-    // Only check command/terminal tools
-    if (effect.category !== 'terminal' && effect.action !== 'execute') {
-      return this.allowResult();
-    }
-
-    // Extract command from parameters
+    // Extract command from parameters — check ALL tool calls, not just terminal
+    // because CET may reclassify commands (e.g., dd → filesystem, chmod → filesystem)
     const command = this.extractCommand(parameters);
     if (!command) {
       return this.allowResult();

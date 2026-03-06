@@ -216,8 +216,16 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
     },
   ],
 
-  // Git (6 knobs)
+  // Git (7 knobs)
   git: [
+    {
+      id: 'git_read',
+      name: 'Git Read',
+      description: 'Read git state (status, log, diff, branch)',
+      default: 'allow',
+      overridable: true,
+      category: 'git',
+    },
     {
       id: 'git_commit',
       name: 'Git Commit',
@@ -356,8 +364,16 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
     },
   ],
 
-  // Financial (5 knobs)
+  // Financial (6 knobs)
   financial: [
+    {
+      id: 'payment_read',
+      name: 'Payment Read',
+      description: 'Read payment information',
+      default: 'allow',
+      overridable: true,
+      category: 'financial',
+    },
     {
       id: 'payment_create',
       name: 'Payment Create',
@@ -444,8 +460,16 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
     },
   ],
 
-  // Communication (5 knobs)
+  // Communication (6 knobs)
   communication: [
+    {
+      id: 'message_read',
+      name: 'Message Read',
+      description: 'Read messages',
+      default: 'allow',
+      overridable: true,
+      category: 'communication',
+    },
     {
       id: 'email_send',
       name: 'Email Send',
@@ -488,8 +512,16 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
     },
   ],
 
-  // Cloud Infrastructure (5 knobs)
+  // Cloud Infrastructure (6 knobs)
   cloud: [
+    {
+      id: 'cloud_read',
+      name: 'Cloud Read',
+      description: 'Read cloud infrastructure state',
+      default: 'allow',
+      overridable: true,
+      category: 'cloud',
+    },
     {
       id: 'instance_create',
       name: 'Instance Create',
@@ -532,8 +564,24 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
     },
   ],
 
-  // Container (4 knobs)
+  // Container (6 knobs)
   container: [
+    {
+      id: 'container_read',
+      name: 'Container Read',
+      description: 'Read container state',
+      default: 'allow',
+      overridable: true,
+      category: 'container',
+    },
+    {
+      id: 'container_exec',
+      name: 'Container Exec',
+      description: 'Execute commands in containers',
+      default: 'approve',
+      overridable: true,
+      category: 'container',
+    },
     {
       id: 'container_create',
       name: 'Container Create',
@@ -568,8 +616,16 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
     },
   ],
 
-  // Package Management (4 knobs)
+  // Package Management (5 knobs)
   package: [
+    {
+      id: 'package_read',
+      name: 'Package Read',
+      description: 'Read package information',
+      default: 'allow',
+      overridable: true,
+      category: 'package',
+    },
     {
       id: 'install',
       name: 'Package Install',
@@ -612,8 +668,16 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
     },
   ],
 
-  // Scheduling (3 knobs)
+  // Scheduling (5 knobs)
   scheduling: [
+    {
+      id: 'schedule_read',
+      name: 'Schedule Read',
+      description: 'Read scheduled tasks',
+      default: 'allow',
+      overridable: true,
+      category: 'scheduling',
+    },
     {
       id: 'cron_create',
       name: 'Cron Create',
@@ -626,6 +690,14 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
       id: 'timer_create',
       name: 'Timer Create',
       description: 'Create timers/scheduled tasks',
+      default: 'approve',
+      overridable: true,
+      category: 'scheduling',
+    },
+    {
+      id: 'cron_delete',
+      name: 'Cron Delete',
+      description: 'Delete cron jobs',
       default: 'approve',
       overridable: true,
       category: 'scheduling',
@@ -659,6 +731,14 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
       category: 'authentication',
     },
     {
+      id: 'credential_delete',
+      name: 'Credential Delete',
+      description: 'Delete credentials',
+      default: 'block',
+      overridable: true,
+      category: 'authentication',
+    },
+    {
       id: 'session_create',
       name: 'Session Create',
       description: 'Create sessions',
@@ -668,8 +748,16 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
     },
   ],
 
-  // Deployment (4 knobs)
+  // Deployment (5 knobs)
   deployment: [
+    {
+      id: 'deployment_read',
+      name: 'Deployment Read',
+      description: 'Read deployment status',
+      default: 'allow',
+      overridable: true,
+      category: 'deployment',
+    },
     {
       id: 'deploy_staging',
       name: 'Deploy Staging',
@@ -723,6 +811,14 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
       category: 'monitoring',
     },
     {
+      id: 'log_write',
+      name: 'Log Write',
+      description: 'Write to logs',
+      default: 'approve',
+      overridable: true,
+      category: 'monitoring',
+    },
+    {
       id: 'alert_create',
       name: 'Alert Create',
       description: 'Create alerts',
@@ -732,8 +828,16 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
     },
   ],
 
-  // Data (4 knobs)
+  // Data (6 knobs)
   data: [
+    {
+      id: 'data_read',
+      name: 'Data Read',
+      description: 'Read data',
+      default: 'allow',
+      overridable: true,
+      category: 'data',
+    },
     {
       id: 'export',
       name: 'Data Export',
@@ -759,6 +863,14 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
       category: 'data',
     },
     {
+      id: 'data_delete',
+      name: 'Data Delete',
+      description: 'Delete data',
+      default: 'approve',
+      overridable: true,
+      category: 'data',
+    },
+    {
       id: 'transform',
       name: 'Transform',
       description: 'Transform data',
@@ -768,8 +880,16 @@ export const KNOB_DEFINITIONS: Record<KnobCategory, KnobDefinition[]> = {
     },
   ],
 
-  // Browser (3 knobs)
+  // Browser (4 knobs)
   browser: [
+    {
+      id: 'browser_read',
+      name: 'Browser Read',
+      description: 'Read browser content',
+      default: 'allow',
+      overridable: true,
+      category: 'browser',
+    },
     {
       id: 'navigate',
       name: 'Navigate',

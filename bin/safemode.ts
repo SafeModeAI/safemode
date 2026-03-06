@@ -12,6 +12,8 @@
  *   activity    View activity feed
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Command } from 'commander';
 import { runProxy } from '../src/proxy/wrapper.js';
 import { parseProxyArgs } from '../src/proxy/spawn.js';
@@ -52,7 +54,11 @@ const program = new Command();
 program
   .name('safemode')
   .description('AI governance for MCP servers')
-  .version('0.1.0');
+  .version(
+    JSON.parse(
+      fs.readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../package.json'), 'utf8')
+    ).version
+  );
 
 // ============================================================================
 // Init Command

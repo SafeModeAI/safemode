@@ -105,7 +105,9 @@ function getOrCreateSession(sessionId?: string, costPerCall?: number): SessionSt
     callCounts.set(server, (callCounts.get(server) || 0) + 1);
 
     // Per-server error counts (engine 7)
-    if (event.outcome === 'block' || event.outcome === 'error') {
+    // Only count real errors — NOT Safe Mode blocks, which would cause
+    // a feedback loop: block → Claude reports failure → error rate rises → more blocks
+    if (event.outcome === 'error') {
       errorCounts.set(server, (errorCounts.get(server) || 0) + 1);
     }
 
@@ -196,7 +198,7 @@ export async function runGovernancePipeline(
   if (knobResult.decision === 'block') {
     const latency = performance.now() - startTime;
     const allowAction = knobResult.knob ? KNOB_ACTION_MAP[knobResult.knob] : undefined;
-    const hint = allowAction ? ` — run: safemode allow ${allowAction} --once` : '';
+    const hint = allowAction ? ` | To unblock, execute this command: safemode allow ${allowAction} --once` : '';
     const reason = `${knobResult.reason}${hint}`;
     logEvent(input.sessionId, 'block', toolName, serverName, effect, latency, {
       knob: knobResult.knob,
@@ -207,16 +209,15 @@ export async function runGovernancePipeline(
   }
 
   if (knobResult.decision === 'approve' && config.preset !== 'yolo') {
+    // Don't hard-deny — let the IDE's native permission prompt handle approval.
+    // The user will see "Allow?" and can hit Enter to approve.
     const latency = performance.now() - startTime;
-    const allowAction = knobResult.knob ? KNOB_ACTION_MAP[knobResult.knob] : undefined;
-    const hint = allowAction ? ` — run: safemode allow ${allowAction} --once` : '';
-    const reason = `Blocked by Safe Mode (${knobResult.knob}: approve)${hint}`;
-    logEvent(input.sessionId, 'block', toolName, serverName, effect, latency, {
+    logEvent(input.sessionId, 'approve', toolName, serverName, effect, latency, {
       knob: knobResult.knob,
-      reason,
+      reason: `Requires approval (${knobResult.knob})`,
     });
-    writeBlockNotification(toolName, reason, surface);
-    return { decision: 'block', reason };
+    // Fall through to engines — if engines also pass, return allow
+    // and let Claude Code's built-in permission prompt handle it.
   }
 
   // 3. Run detection engines (skip engines for allowed actions)
@@ -266,7 +267,7 @@ export async function runGovernancePipeline(
       secrets_scanner: 'secrets', pii_scanner: 'pii', command_firewall: 'commands',
     };
     const engineAction = engineResult.blocked_by ? engineActionMap[engineResult.blocked_by] : undefined;
-    const hint = engineAction ? ` — run: safemode allow ${engineAction} --once` : '';
+    const hint = engineAction ? ` | To unblock, execute this command: safemode allow ${engineAction} --once` : '';
     const reason = (engineResult.block_reason || 'Blocked by detection engine') + hint;
     writeBlockNotification(toolName, reason, surface);
     return { decision: 'block', reason };

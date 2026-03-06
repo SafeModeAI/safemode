@@ -42,6 +42,7 @@ const ACTION_KNOB_MAP: Record<string, Record<string, string>> = {
   terminal: {
     execute: 'command_exec',
     read: 'command_exec',
+    delete: 'destructive_commands',
   },
   git: {
     read: 'git_read',
@@ -52,6 +53,7 @@ const ACTION_KNOB_MAP: Record<string, Record<string, string>> = {
   network: {
     read: 'http_request',
     write: 'http_request',
+    execute: 'http_request',
   },
   database: {
     read: 'db_read',
@@ -91,9 +93,9 @@ const ACTION_KNOB_MAP: Record<string, Record<string, string>> = {
   },
   package: {
     read: 'package_read',
-    write: 'package_install',
-    create: 'package_install',
-    delete: 'package_uninstall',
+    write: 'install',
+    create: 'install',
+    delete: 'uninstall',
   },
   scheduling: {
     read: 'schedule_read',
@@ -118,8 +120,8 @@ const ACTION_KNOB_MAP: Record<string, Record<string, string>> = {
   },
   data: {
     read: 'data_read',
-    write: 'data_export',
-    create: 'data_import',
+    write: 'export',
+    create: 'import',
     delete: 'data_delete',
   },
   browser: {
@@ -128,9 +130,14 @@ const ACTION_KNOB_MAP: Record<string, Record<string, string>> = {
     execute: 'navigate',
   },
   physical: {
-    read: 'iot_read',
+    read: 'sensor_read',
     write: 'iot_command',
     execute: 'hardware_control',
+  },
+  data_protection: {
+    read: 'block_secrets',
+    write: 'block_secrets',
+    delete: 'block_credentials',
   },
 };
 

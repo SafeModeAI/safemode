@@ -120,19 +120,19 @@ const KNOWN_TOOLS: KnownToolRegistry = {
   },
   'Read': {
     action: 'read',
-    scope_from: 'parameters.file_path',
+    scope_from: 'file_path',
     category: 'filesystem',
     risk: 'low',
   },
   'Write': {
     action: 'write',
-    scope_from: 'parameters.file_path',
+    scope_from: 'file_path',
     category: 'filesystem',
     risk_from_scope: true,
   },
   'Edit': {
     action: 'write',
-    scope_from: 'parameters.file_path',
+    scope_from: 'file_path',
     category: 'filesystem',
     risk_from_scope: true,
   },
@@ -156,19 +156,19 @@ const KNOWN_TOOLS: KnownToolRegistry = {
   },
   'edit_file': {
     action: 'write',
-    scope_from: 'parameters.target_file',
+    scope_from: 'target_file',
     category: 'filesystem',
     risk_from_scope: true,
   },
   'read_file': {
     action: 'read',
-    scope_from: 'parameters.target_file',
+    scope_from: 'target_file',
     category: 'filesystem',
     risk: 'low',
   },
   'delete_file': {
     action: 'delete',
-    scope_from: 'parameters.target_file',
+    scope_from: 'target_file',
     category: 'filesystem',
     risk_from_scope: true,
   },
@@ -319,48 +319,325 @@ export class CETClassifier {
 
   /**
    * Analyze a shell command string and refine its classification.
-   * Reclassifies destructive commands (rm, chmod, etc.) as filesystem/delete
-   * so that knob gate file_delete and destructive_commands knobs apply.
+   * Every Bash tool call goes through this to get a proper risk level
+   * instead of the blanket 'critical' from the registry entry.
    */
   private refineTerminalCommand(
     cmd: string
   ): { category: ToolCategory; action: ToolAction; risk?: RiskLevel } | null {
     const trimmed = cmd.trim();
-    const firstWord = trimmed.split(/\s+/)[0]?.replace(/^.*\//, ''); // strip path prefix
+    // Handle piped commands — classify by the most dangerous segment
+    if (trimmed.includes('|')) {
+      return this.refinePipedCommand(trimmed);
+    }
+    // Handle chained commands (&&, ;) — classify by the most dangerous segment
+    if (/\s*(?:&&|;)\s*/.test(trimmed)) {
+      return this.refineChainedCommand(trimmed);
+    }
+    return this.refineSingleCommand(trimmed);
+  }
 
-    // File deletion commands → filesystem/delete
-    if (firstWord === 'rm' || firstWord === 'rmdir' || firstWord === 'unlink') {
-      return { category: 'filesystem', action: 'delete', risk: 'critical' };
+  /**
+   * Classify a piped command by its most dangerous segment.
+   * e.g. "curl url | bash" → critical (because of bash)
+   */
+  private refinePipedCommand(
+    cmd: string
+  ): { category: ToolCategory; action: ToolAction; risk?: RiskLevel } | null {
+    const segments = cmd.split('|').map(s => s.trim());
+    const riskOrder: RiskLevel[] = ['low', 'medium', 'high', 'critical'];
+    let worst: { category: ToolCategory; action: ToolAction; risk?: RiskLevel } | null = null;
+    let worstIdx = -1;
+
+    for (const seg of segments) {
+      const result = this.refineSingleCommand(seg);
+      if (result) {
+        const idx = riskOrder.indexOf(result.risk || 'medium');
+        if (idx > worstIdx) {
+          worstIdx = idx;
+          worst = result;
+        }
+      }
     }
 
-    // Git operations — only reclassify dangerous ones
+    // Special case: piping into bash/sh is always critical
+    const lastSeg = segments[segments.length - 1]?.split(/\s+/)[0]?.replace(/^.*\//, '');
+    if (lastSeg === 'bash' || lastSeg === 'sh' || lastSeg === 'zsh') {
+      return { category: 'terminal', action: 'execute', risk: 'critical' };
+    }
+
+    return worst;
+  }
+
+  /**
+   * Classify chained commands (&&, ;) by the most dangerous segment.
+   */
+  private refineChainedCommand(
+    cmd: string
+  ): { category: ToolCategory; action: ToolAction; risk?: RiskLevel } | null {
+    const segments = cmd.split(/\s*(?:&&|;)\s*/).map(s => s.trim()).filter(Boolean);
+    const riskOrder: RiskLevel[] = ['low', 'medium', 'high', 'critical'];
+    let worst: { category: ToolCategory; action: ToolAction; risk?: RiskLevel } | null = null;
+    let worstIdx = -1;
+
+    for (const seg of segments) {
+      // Each segment might itself be piped
+      const result = seg.includes('|')
+        ? this.refinePipedCommand(seg)
+        : this.refineSingleCommand(seg);
+      if (result) {
+        const idx = riskOrder.indexOf(result.risk || 'medium');
+        if (idx > worstIdx) {
+          worstIdx = idx;
+          worst = result;
+        }
+      }
+    }
+    return worst;
+  }
+
+  /**
+   * Classify a single (non-piped, non-chained) command.
+   */
+  private refineSingleCommand(
+    cmd: string
+  ): { category: ToolCategory; action: ToolAction; risk?: RiskLevel } | null {
+    const trimmed = cmd.trim();
+    const words = trimmed.split(/\s+/);
+    const firstWord = words[0]?.replace(/^.*\//, ''); // strip path prefix
+
+    if (!firstWord) return null;
+
+    // ── Critical: genuinely catastrophic ──
+    if (firstWord === 'sudo') {
+      return { category: 'terminal', action: 'execute', risk: 'critical' };
+    }
+    if (firstWord === 'dd') {
+      return { category: 'filesystem', action: 'write', risk: 'critical' };
+    }
+    if (firstWord === 'mkfs' || firstWord === 'fdisk' || firstWord === 'parted') {
+      return { category: 'filesystem', action: 'delete', risk: 'critical' };
+    }
+    // eval/exec/source can run arbitrary code
+    if (firstWord === 'eval') {
+      return { category: 'terminal', action: 'execute', risk: 'critical' };
+    }
+    if (firstWord === 'exec') {
+      return { category: 'terminal', action: 'execute', risk: 'high' };
+    }
+    if (firstWord === 'source' || firstWord === '.') {
+      return { category: 'terminal', action: 'execute', risk: 'high' };
+    }
+    // nohup just wraps another command — classify by the inner command
+    if (firstWord === 'nohup' && words[1]) {
+      const inner = trimmed.replace(/^nohup\s+/, '');
+      return this.refineSingleCommand(inner) || { category: 'terminal', action: 'execute', risk: 'medium' };
+    }
+
+    // ── find with destructive flags ──
+    if (firstWord === 'find') {
+      if (trimmed.includes('-delete') || trimmed.includes('-exec') || trimmed.includes('-execdir')) {
+        return { category: 'terminal', action: 'delete', risk: 'high' };
+      }
+      return { category: 'terminal', action: 'read', risk: 'low' };
+    }
+
+    // ── File deletion — risk depends on flags ──
+    if (firstWord === 'rm' || firstWord === 'rmdir' || firstWord === 'unlink') {
+      // rm -rf, rm -r, rm --recursive, or wildcards → terminal/delete → destructive_commands knob (block)
+      if (/\s-\S*r/i.test(trimmed) || trimmed.includes('--recursive') || trimmed.includes('*')) {
+        return { category: 'terminal', action: 'delete', risk: 'high' };
+      }
+      // rm <specific file> → filesystem/delete → file_delete knob (approve prompt)
+      return { category: 'filesystem', action: 'delete', risk: 'medium' };
+    }
+
+    // ── Git operations ──
     if (firstWord === 'git') {
-      const subCmd = trimmed.split(/\s+/)[1];
-      if (subCmd === 'push' && trimmed.includes('--force')) return { category: 'git', action: 'delete', risk: 'critical' };
+      const subCmd = words[1];
+      if (subCmd === 'push' && (trimmed.includes('--force') || trimmed.includes('-f'))) {
+        return { category: 'git', action: 'delete', risk: 'critical' };
+      }
       if (subCmd === 'push') return { category: 'git', action: 'write', risk: 'medium' };
       if (subCmd === 'branch' && trimmed.includes('-D')) return { category: 'git', action: 'delete', risk: 'high' };
       if (subCmd === 'reset' && trimmed.includes('--hard')) return { category: 'git', action: 'delete', risk: 'high' };
-      // Safe git operations (add, commit, status, diff, log, etc.) — don't reclassify
-      return null;
+      if (subCmd === 'clean' && trimmed.includes('-f')) return { category: 'git', action: 'delete', risk: 'high' };
+      if (subCmd === 'rebase') return { category: 'git', action: 'write', risk: 'medium' };
+      // Safe git: status, log, diff, show, branch (list), stash list, add, commit, fetch, pull, checkout
+      return { category: 'git', action: 'read', risk: 'low' };
     }
 
-    // Package installs → package category
-    if (firstWord === 'npm' || firstWord === 'yarn' || firstWord === 'pnpm' || firstWord === 'pip' || firstWord === 'pip3') {
-      const subCmd = trimmed.split(/\s+/)[1];
-      if (subCmd === 'install' || subCmd === 'add' || subCmd === 'i') {
+    // ── Package managers ──
+    if (firstWord === 'npm' || firstWord === 'yarn' || firstWord === 'pnpm' || firstWord === 'pip' || firstWord === 'pip3' || firstWord === 'bun') {
+      const subCmd = words[1];
+      if (subCmd === 'install' || subCmd === 'add' || subCmd === 'i' || subCmd === 'ci') {
         return { category: 'package', action: 'create', risk: 'medium' };
       }
       if (subCmd === 'uninstall' || subCmd === 'remove' || subCmd === 'rm') {
         return { category: 'package', action: 'delete', risk: 'medium' };
       }
+      // npm run, npm test, npm start, npx, etc. → medium (runs scripts)
+      return { category: 'terminal', action: 'execute', risk: 'medium' };
+    }
+    if (firstWord === 'npx') {
+      return { category: 'terminal', action: 'execute', risk: 'medium' };
+    }
+    // System package managers
+    if (firstWord === 'apt' || firstWord === 'apt-get' || firstWord === 'brew' || firstWord === 'dnf' || firstWord === 'yum' || firstWord === 'pacman' || firstWord === 'apk') {
+      const subCmd = words[1];
+      if (subCmd === 'install' || subCmd === 'add' || subCmd === '-S') {
+        return { category: 'package', action: 'create', risk: 'medium' };
+      }
+      if (subCmd === 'remove' || subCmd === 'uninstall' || subCmd === 'purge' || subCmd === '-R') {
+        return { category: 'package', action: 'delete', risk: 'medium' };
+      }
+      if (subCmd === 'update' || subCmd === 'upgrade') {
+        return { category: 'package', action: 'write', risk: 'medium' };
+      }
+      return { category: 'package', action: 'read', risk: 'low' };
     }
 
-    // Network commands → network category
+    // ── Language-specific package managers ──
+    if (firstWord === 'cargo') {
+      const subCmd = words[1];
+      if (subCmd === 'add' || subCmd === 'install') return { category: 'package', action: 'create', risk: 'medium' };
+      if (subCmd === 'remove' || subCmd === 'uninstall') return { category: 'package', action: 'delete', risk: 'medium' };
+      return { category: 'terminal', action: 'execute', risk: 'medium' };
+    }
+    if (firstWord === 'go') {
+      const subCmd = words[1];
+      if (subCmd === 'get' || subCmd === 'install') return { category: 'package', action: 'create', risk: 'medium' };
+      return { category: 'terminal', action: 'execute', risk: 'medium' };
+    }
+    if (firstWord === 'gem') {
+      const subCmd = words[1];
+      if (subCmd === 'install') return { category: 'package', action: 'create', risk: 'medium' };
+      if (subCmd === 'uninstall') return { category: 'package', action: 'delete', risk: 'medium' };
+      return { category: 'package', action: 'read', risk: 'low' };
+    }
+    if (firstWord === 'composer') {
+      const subCmd = words[1];
+      if (subCmd === 'require' || subCmd === 'install') return { category: 'package', action: 'create', risk: 'medium' };
+      if (subCmd === 'remove') return { category: 'package', action: 'delete', risk: 'medium' };
+      return { category: 'terminal', action: 'execute', risk: 'medium' };
+    }
+    if (firstWord === 'dotnet') {
+      if (words[1] === 'add' && words[2] === 'package') return { category: 'package', action: 'create', risk: 'medium' };
+      return { category: 'terminal', action: 'execute', risk: 'medium' };
+    }
+
+    // ── Network commands ──
     if (firstWord === 'curl' || firstWord === 'wget') {
       return { category: 'network', action: 'read', risk: 'medium' };
     }
 
-    return null;
+    // ── Remote access ──
+    if (firstWord === 'ssh') {
+      return { category: 'network', action: 'execute', risk: 'high' };
+    }
+    if (firstWord === 'scp' || firstWord === 'rsync') {
+      return { category: 'network', action: 'write', risk: 'medium' };
+    }
+
+    // ── Scheduling ──
+    if (firstWord === 'crontab') {
+      if (trimmed.includes('-r') || trimmed.includes('-i')) return { category: 'scheduling', action: 'delete', risk: 'high' };
+      if (trimmed.includes('-l')) return { category: 'scheduling', action: 'read', risk: 'low' };
+      if (trimmed.includes('-e')) return { category: 'scheduling', action: 'write', risk: 'medium' };
+      return { category: 'scheduling', action: 'read', risk: 'low' };
+    }
+    if (firstWord === 'at') {
+      return { category: 'scheduling', action: 'create', risk: 'medium' };
+    }
+
+    // ── Script runners → medium ──
+    if (firstWord === 'node' || firstWord === 'python' || firstWord === 'python3' ||
+        firstWord === 'ruby' || firstWord === 'perl' || firstWord === 'deno' || firstWord === 'bun') {
+      return { category: 'terminal', action: 'execute', risk: 'medium' };
+    }
+
+    // ── Permission/ownership changes → high ──
+    if (firstWord === 'chmod' || firstWord === 'chown' || firstWord === 'chgrp') {
+      return { category: 'filesystem', action: 'write', risk: 'high' };
+    }
+
+    // ── File write operations → medium ──
+    if (firstWord === 'mv' || firstWord === 'cp') {
+      return { category: 'filesystem', action: 'write', risk: 'medium' };
+    }
+    if (firstWord === 'mkdir' || firstWord === 'touch') {
+      return { category: 'filesystem', action: 'create', risk: 'low' };
+    }
+    if (firstWord === 'sed' || firstWord === 'awk') {
+      // In-place edit flag (-i) → medium, otherwise read
+      if (trimmed.includes(' -i')) return { category: 'filesystem', action: 'write', risk: 'medium' };
+      return { category: 'filesystem', action: 'read', risk: 'low' };
+    }
+    if (firstWord === 'tee') {
+      return { category: 'filesystem', action: 'write', risk: 'medium' };
+    }
+
+    // ── Read-only / informational commands → low ──
+    const readOnlyCommands = new Set([
+      'echo', 'printf', 'ls', 'dir', 'pwd', 'cat', 'head', 'tail', 'less', 'more',
+      'grep', 'rg', 'ag', 'ack', 'fd', 'which', 'where', 'type', 'command',
+      'cd', 'wc', 'sort', 'uniq', 'diff', 'tr', 'cut', 'env', 'printenv', 'export',
+      'date', 'whoami', 'hostname', 'uname', 'id', 'groups', 'file', 'stat', 'du', 'df',
+      'test', '[', 'true', 'false', 'seq', 'yes', 'basename', 'dirname', 'realpath',
+      'readlink', 'md5sum', 'sha256sum', 'sha1sum', 'base64', 'xxd', 'od', 'hexdump',
+      'man', 'help', 'info', 'bat', 'jq', 'yq', 'xargs',
+      'safemode',
+    ]);
+    if (readOnlyCommands.has(firstWord)) {
+      // Output redirection overrides read → write
+      if (/\s>{1,2}\s*\S/.test(trimmed)) {
+        return { category: 'filesystem', action: 'write', risk: 'medium' };
+      }
+      return { category: 'terminal', action: 'read', risk: 'low' };
+    }
+
+    // ── Docker — differentiate by subcommand ──
+    if (firstWord === 'docker' || firstWord === 'podman') {
+      const subCmd = words[1];
+      if (subCmd === 'run' || subCmd === 'exec') return { category: 'container', action: 'execute', risk: 'high' };
+      if (subCmd === 'rm' || subCmd === 'rmi' || subCmd === 'prune') return { category: 'container', action: 'delete', risk: 'high' };
+      if (subCmd === 'build' || subCmd === 'compose') return { category: 'container', action: 'create', risk: 'medium' };
+      if (subCmd === 'pull') return { category: 'container', action: 'read', risk: 'low' };
+      if (subCmd === 'ps' || subCmd === 'images' || subCmd === 'inspect' || subCmd === 'logs') return { category: 'container', action: 'read', risk: 'low' };
+      if (subCmd === 'push') return { category: 'container', action: 'write', risk: 'medium' };
+      return { category: 'container', action: 'execute', risk: 'medium' };
+    }
+
+    // ── Kubernetes — differentiate by subcommand ──
+    if (firstWord === 'kubectl') {
+      const subCmd = words[1];
+      if (subCmd === 'delete') return { category: 'cloud', action: 'delete', risk: 'high' };
+      if (subCmd === 'apply' || subCmd === 'create' || subCmd === 'patch' || subCmd === 'replace') return { category: 'cloud', action: 'write', risk: 'medium' };
+      if (subCmd === 'exec') return { category: 'container', action: 'execute', risk: 'high' };
+      if (subCmd === 'get' || subCmd === 'describe' || subCmd === 'logs' || subCmd === 'top') return { category: 'cloud', action: 'read', risk: 'low' };
+      return { category: 'cloud', action: 'read', risk: 'medium' };
+    }
+
+    // ── Terraform — differentiate by subcommand ──
+    if (firstWord === 'terraform' || firstWord === 'tofu') {
+      const subCmd = words[1];
+      if (subCmd === 'destroy') return { category: 'cloud', action: 'delete', risk: 'critical' };
+      if (subCmd === 'apply') return { category: 'cloud', action: 'write', risk: 'high' };
+      if (subCmd === 'plan' || subCmd === 'init' || subCmd === 'validate' || subCmd === 'fmt') return { category: 'cloud', action: 'read', risk: 'low' };
+      return { category: 'cloud', action: 'read', risk: 'medium' };
+    }
+
+    // ── Build tools → medium ──
+    const buildTools = new Set([
+      'make', 'cmake', 'rustc', 'gcc', 'g++', 'clang', 'javac',
+      'tsc', 'esbuild', 'webpack', 'vite', 'rollup', 'turbo', 'nx',
+    ]);
+    if (buildTools.has(firstWord)) {
+      return { category: 'terminal', action: 'execute', risk: 'medium' };
+    }
+
+    // ── Default: unrecognized commands → medium (not critical) ──
+    return { category: 'terminal', action: 'execute', risk: 'medium' };
   }
 
   /**
@@ -454,8 +731,18 @@ export class CETClassifier {
       return 'network';
     }
 
+    // Project scope takes priority — if the path is within the project dir, it's project
+    if (this.projectDir && pathStr.startsWith(this.projectDir)) {
+      return 'project';
+    }
+
+    // Relative paths are project scope (but not ~ which is user home)
+    if (!pathStr.startsWith('~') && (pathStr.startsWith('./') || pathStr.startsWith('../') || !pathStr.startsWith('/'))) {
+      return 'project';
+    }
+
     // System scope
-    const systemPaths = ['/etc', '/usr', '/var', '/sys', '/bin', '/sbin', '/lib'];
+    const systemPaths = ['/etc', '/usr', '/var', '/sys', '/bin', '/sbin', '/lib', '/tmp'];
     for (const sys of systemPaths) {
       if (pathStr.startsWith(sys)) {
         return 'system';
@@ -464,21 +751,7 @@ export class CETClassifier {
 
     // User home scope
     if (pathStr.startsWith('~') || pathStr.startsWith('/home/') || pathStr.startsWith('/Users/')) {
-      // Check if within project
-      if (this.projectDir && pathStr.startsWith(this.projectDir)) {
-        return 'project';
-      }
       return 'user_home';
-    }
-
-    // Relative paths are project scope
-    if (pathStr.startsWith('./') || pathStr.startsWith('../') || !pathStr.startsWith('/')) {
-      return 'project';
-    }
-
-    // Check if within project directory
-    if (this.projectDir && pathStr.startsWith(this.projectDir)) {
-      return 'project';
     }
 
     // Default to user_home for absolute paths not matching other patterns
