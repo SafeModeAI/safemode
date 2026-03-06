@@ -126,9 +126,14 @@ export class SecretsScanner implements DetectionEngine {
       while ((match = pattern.exec(content)) !== null) {
         const matched = match[0];
 
-        // AWS secret key: must contain / or + (real keys always do, identifiers don't)
-        if (name === 'aws_secret_key' && !/[/+]/.test(matched)) {
-          continue;
+        // AWS secret key: must contain / or + AND have secret-related context nearby
+        if (name === 'aws_secret_key') {
+          if (!/[/+]/.test(matched)) continue;
+          // Require a secret-related word in the 80 chars before the match
+          const prefix = content.slice(Math.max(0, match.index - 80), match.index).toLowerCase();
+          if (!/(?:secret|aws|access.?key|credential|password|private.?key)/.test(prefix)) {
+            continue;
+          }
         }
 
         // Skip documentation context: nearby text about patterns/detection is not a secret

@@ -340,6 +340,18 @@ describe('Engine 10: Secrets Scanner', () => {
     expect(result.detected).toBe(false);
   });
 
+  it('should NOT trigger on file paths that happen to be 40 chars', async () => {
+    const context = createContext({
+      parameters: {
+        command: 'git add components/onboarding/steps/VerifyLaunch.tsx',
+        description: 'Stage file',
+      },
+    });
+
+    const result = await engine.evaluate(context);
+    expect(result.detected).toBe(false);
+  });
+
   it('should still detect real AWS secret keys with slash/plus', async () => {
     const context = createContext({
       parameters: {
