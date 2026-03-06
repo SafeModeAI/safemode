@@ -30,7 +30,7 @@ src/
   cli/          CLI command implementations
 bin/
   safemode.ts   CLI entry point
-tests/          Vitest test suite (692 tests across 14 files)
+tests/          Vitest test suite (715 tests across 14 files)
 docs/           User and developer guides
 ```
 
@@ -78,7 +78,7 @@ npx vitest run tests/calibration.test.ts    # Calibration suite only
 npx vitest run tests/cet.test.ts            # CET tests only
 ```
 
-All 692 tests must pass before merging. Do not reduce the test count.
+All 715 tests must pass before merging. Do not reduce the test count.
 
 The **calibration test suite** (`tests/calibration.test.ts`) is the most important test file. It verifies every path through the full CET → KnobGate → Engine pipeline with real commands. If you change CET classification, knob routing, engine routing, or firewall patterns, update calibration tests accordingly.
 
@@ -115,7 +115,7 @@ The **calibration test suite** (`tests/calibration.test.ts`) is the most importa
 
 - Fork the repo and create a branch
 - Write tests for new functionality
-- Run `npm run test:run` and ensure all 692+ tests pass
+- Run `npm run test:run` and ensure all 715+ tests pass
 - Keep PRs focused — one feature or fix per PR
 - Update docs if adding user-facing features
 - Update CHANGELOG.md

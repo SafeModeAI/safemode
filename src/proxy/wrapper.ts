@@ -292,8 +292,7 @@ function getBudgetForPreset(preset: string): { maxSessionCost: number; alertAt: 
   const budgets: Record<string, { maxSessionCost: number; alertAt: number }> = {
     yolo: { maxSessionCost: 100, alertAt: 80 },
     coding: defaultBudget,
-    personal: { maxSessionCost: 10, alertAt: 8 },
-    trading: { maxSessionCost: 50, alertAt: 40 },
+    autonomous: { maxSessionCost: 10, alertAt: 8 },
     strict: { maxSessionCost: 5, alertAt: 4 },
   };
 

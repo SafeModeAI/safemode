@@ -1681,12 +1681,14 @@ describe('Calibration: Gap Fixes', () => {
       expect(result.decision).toBe('approve');
     });
 
-    it('npm install → install knob → block on personal', () => {
+    it('npm install → install knob → block on autonomous', () => {
       const effect = classifyCmd('npm install lodash');
-      // Build personal knobs: install overridden to block
+      // Build autonomous knobs: install overridden to block
       const knobs = getDefaultKnobValues();
-      knobs['command_exec'] = 'block';
       knobs['destructive_commands'] = 'block';
+      knobs['http_request'] = 'block';
+      knobs['git_push'] = 'block';
+      knobs['git_force_push'] = 'block';
       knobs['install'] = 'block';
       const gate = new KnobGate({ knobs, approveFallback: 'block' });
       const result = gate.evaluate(effect);
@@ -1694,7 +1696,7 @@ describe('Calibration: Gap Fixes', () => {
       expect(result.decision).toBe('block');
     });
 
-    it('pip install → install knob → block on personal', () => {
+    it('pip install → install knob → block on autonomous', () => {
       const effect = classifyCmd('pip install requests');
       const knobs = getDefaultKnobValues();
       knobs['install'] = 'block';
@@ -1702,6 +1704,172 @@ describe('Calibration: Gap Fixes', () => {
       const result = gate.evaluate(effect);
       expect(result.knob).toBe('install');
       expect(result.decision).toBe('block');
+    });
+  });
+});
+
+// =============================================================================
+// Section 11: Autonomous Preset Verification
+// =============================================================================
+
+describe('Section 11: Autonomous Preset', () => {
+  // Build autonomous knobs: approve_fallback=block, overrides for destructive/network/push/install
+  function createAutonomousKnobs(): Record<string, KnobValue> {
+    const knobs = getDefaultKnobValues();
+    knobs['destructive_commands'] = 'block';
+    knobs['http_request'] = 'block';
+    knobs['git_push'] = 'block';
+    knobs['git_force_push'] = 'block';
+    knobs['install'] = 'block';
+    return knobs;
+  }
+
+  const autonomousGate = new KnobGate({ knobs: createAutonomousKnobs(), approveFallback: 'block' });
+
+  describe('MUST ALLOW on autonomous (reads, writes, builds, local git)', () => {
+    it('cat file.txt → allow', () => {
+      const effect = classifier.classify('Read', { file_path: 'file.txt' });
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('ls -la → allow', () => {
+      const effect = classifyCmd('ls -la');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('echo hello → allow', () => {
+      const effect = classifyCmd('echo hello');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('grep -r TODO src/ → allow', () => {
+      const effect = classifyCmd('grep -r "TODO" src/');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('Write tool → allow', () => {
+      const effect = classifier.classify('Write', { file_path: 'src/index.ts', content: 'test' });
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('npm run build → allow', () => {
+      const effect = classifyCmd('npm run build');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('npm test → allow', () => {
+      const effect = classifyCmd('npm test');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('node index.js → allow', () => {
+      const effect = classifyCmd('node index.js');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('git status → allow', () => {
+      const effect = classifyCmd('git status');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('git add . → allow', () => {
+      const effect = classifyCmd('git add .');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('git commit -m test → allow', () => {
+      const effect = classifyCmd('git commit -m "test"');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+
+    it('mkdir -p src/components → allow', () => {
+      const effect = classifyCmd('mkdir -p src/components');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('allow');
+    });
+  });
+
+  describe('MUST BLOCK on autonomous (explicit knob overrides)', () => {
+    it('curl → block (http_request knob overridden)', () => {
+      const effect = classifyCmd('curl https://api.example.com');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('block');
+    });
+
+    it('wget → block (http_request knob overridden)', () => {
+      const effect = classifyCmd('wget https://example.com/file.tar.gz');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('block');
+    });
+
+    it('git push → block (git_push knob overridden)', () => {
+      const effect = classifyCmd('git push origin main');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('block');
+    });
+
+    it('git push --force → block (git_force_push knob overridden)', () => {
+      const effect = classifyCmd('git push --force origin main');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('block');
+    });
+
+    it('npm install lodash → block (install knob overridden)', () => {
+      const effect = classifyCmd('npm install lodash');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('block');
+    });
+
+    it('pip install requests → block (install knob overridden)', () => {
+      const effect = classifyCmd('pip install requests');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('block');
+    });
+
+    it('rm -rf dist/ → block (destructive_commands knob overridden)', () => {
+      const effect = classifyCmd('rm -rf dist/');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('block');
+    });
+
+    it('sudo → block (sudo knob default=block)', () => {
+      const effect = classifyCmd('sudo apt install foo');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('block');
+    });
+  });
+
+  describe('approve actions become block at pipeline level (approve_fallback=block)', () => {
+    // The KnobGate returns 'approve' for these. In the pipeline, approve_fallback=block
+    // converts approve → block since there's no human to approve.
+    it('rm file.txt → gate returns approve (file_delete default)', () => {
+      const effect = classifyCmd('rm file.txt');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('approve');
+      // Pipeline would convert to block via approve_fallback
+    });
+
+    it('docker run → gate returns approve (container_create default)', () => {
+      const effect = classifyCmd('docker run nginx');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('approve');
+    });
+
+    it('git branch -D → gate returns approve (git_branch_delete default)', () => {
+      const effect = classifyCmd('git branch -D old-branch');
+      const result = autonomousGate.evaluate(effect);
+      expect(result.decision).toBe('approve');
     });
   });
 });

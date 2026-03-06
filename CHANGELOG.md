@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.2.0 (2026-03-06)
+
+Preset simplification. Replaced `personal` and `trading` presets with a single `autonomous` preset designed for 24/7 unattended agents.
+
+### Breaking Changes
+
+- **Removed `personal` and `trading` presets.** Replace with `autonomous` or `coding`.
+  - If you used `personal`: switch to `coding` with custom rules for secrets protection, or use `autonomous` for unattended agents.
+  - If you used `trading`: switch to `autonomous` (blocks network + push) or `strict` (blocks everything).
+
+### New Features
+
+- **`autonomous` preset** for 24/7 unattended agents. Key design: `approve_fallback: 'block'` means any action that would normally prompt a human is auto-blocked. Reads, project writes, builds, and local git (add/commit) all work. Network requests, git push, package installs, file deletes, and container operations are blocked.
+
+  Network caveat: blocks explicit network tool calls (`curl`, `wget`) but does NOT block network access from build scripts (e.g. `npm run build` may fetch packages internally). This is tool-level governance, not OS-level network isolation.
+
+### Testing
+
+- 715 total tests (441 calibration + 274 others), all passing
+- New: 23 autonomous preset verification tests (12 allow, 8 block, 3 approve-fallback)
+
 ## 2.1.1 (2026-03-06)
 
 Preset accuracy release. Six routing fixes ensure presets work as documented.

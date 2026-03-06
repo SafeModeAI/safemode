@@ -25,7 +25,7 @@ import {
 // Types
 // ============================================================================
 
-export type PresetName = 'yolo' | 'coding' | 'personal' | 'trading' | 'strict';
+export type PresetName = 'yolo' | 'coding' | 'autonomous' | 'strict';
 
 export interface SafeModeConfig {
   /** Config file format version (required: "1.0") */
@@ -205,35 +205,23 @@ const PRESET_DEFAULTS: Record<PresetName, Partial<SafeModeConfig>> = {
       },
     },
   },
-  personal: {
-    preset: 'personal',
-    approve_fallback: 'block',
+  autonomous: {
+    preset: 'autonomous',
+    approve_fallback: 'block', // no human to approve — all prompts become hard blocks
     budget: { max_session_cost: 10, alert_at: 8 },
     overrides: {
       terminal: {
-        command_exec: 'block',
         destructive_commands: 'block',
+      },
+      network: {
+        http_request: 'block',
+      },
+      git: {
+        git_push: 'block',
+        git_force_push: 'block',
       },
       package: {
         install: 'block',
-      },
-    },
-  },
-  trading: {
-    preset: 'trading',
-    approve_fallback: 'block',
-    budget: { max_session_cost: 50, max_daily_cost: 500, alert_at: 40 },
-    overrides: {
-      terminal: {
-        command_exec: 'block',
-      },
-      filesystem: {
-        file_write: 'block',
-        file_delete: 'block',
-      },
-      financial: {
-        payment_create: 'approve',
-        transfer: 'approve',
       },
     },
   },

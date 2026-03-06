@@ -49,17 +49,16 @@ describe('MCP Client Detection', () => {
 
 describe('Config Loading', () => {
   describe('Preset Validation', () => {
-    const presets = ['yolo', 'coding', 'personal', 'trading', 'strict'];
+    const presets = ['yolo', 'coding', 'autonomous', 'strict'];
 
-    it('should have 5 presets available', () => {
-      expect(presets.length).toBe(5);
+    it('should have 4 presets available', () => {
+      expect(presets.length).toBe(4);
     });
 
     it('should include all required presets', () => {
       expect(presets).toContain('yolo');
       expect(presets).toContain('coding');
-      expect(presets).toContain('personal');
-      expect(presets).toContain('trading');
+      expect(presets).toContain('autonomous');
       expect(presets).toContain('strict');
     });
   });

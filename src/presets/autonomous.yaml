@@ -1,0 +1,32 @@
+# Autonomous Preset
+# For 24/7 unattended agents running without human supervision
+# Use for: Overnight builds, background agents, CI/CD
+#
+# Key design: approve_fallback=block means any action that would
+# normally prompt a human is auto-blocked. No human = no prompts.
+#
+# Network caveat: Blocks explicit network tool calls (curl, wget)
+# but does NOT block network access from build scripts.
+
+version: "1.0"
+preset: autonomous
+
+# No human to approve — all prompts become hard blocks
+approve_fallback: block
+
+# Budget limits
+budget:
+  max_session_cost: 10
+  alert_at: 8
+
+# Knob overrides
+overrides:
+  terminal:
+    destructive_commands: block
+  network:
+    http_request: block
+  git:
+    git_push: block
+    git_force_push: block
+  package:
+    install: block

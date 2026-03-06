@@ -321,20 +321,12 @@ export function createATSPConfig(
       network: 'full_access',
       database: 'scoped_write',
     },
-    personal: {
+    autonomous: {
       filesystem: 'scoped_write',
-      terminal: 'disabled',
-      git: 'disabled',
-      network: 'full_access',
-      database: 'read_only',
-    },
-    trading: {
-      filesystem: 'read_only',
-      terminal: 'disabled',
-      git: 'disabled',
-      network: 'scoped_write',
-      database: 'read_only',
-      financial: 'scoped_write',
+      terminal: 'scoped_write',
+      git: 'scoped_write',
+      network: 'disabled',
+      database: 'scoped_write',
     },
     strict: {
       filesystem: 'read_only',

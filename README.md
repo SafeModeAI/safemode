@@ -64,10 +64,9 @@ safemode preset <name>
 
 | Preset | Description |
 |--------|-------------|
-| `yolo` | Log everything, block nothing |
+| `yolo` | Allow everything except hardcoded invariants (Command Firewall) |
 | `coding` | Block destructive ops, approve file deletes and package installs (default) |
-| `personal` | Block secrets, PII, and destructive ops |
-| `trading` | Strict financial safety — block network, packages, git |
+| `autonomous` | For 24/7 unattended agents — block network, push, installs; auto-block all prompts |
 | `strict` | Block everything that isn't a read |
 
 ## CLI
@@ -97,7 +96,7 @@ Every shell command is deeply classified, not treated as a black box:
 | `rm file.txt` | filesystem | delete | medium |
 | `rm -rf dist/` | terminal | delete | high |
 | `git status`, `git log` | git | read | low |
-| `git push --force` | git | delete | critical |
+| `git push --force` | git | execute | critical |
 | `npm install lodash` | package | create | medium |
 | `docker run nginx` | container | execute | high |
 | `docker ps` | container | read | low |

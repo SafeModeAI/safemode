@@ -94,7 +94,7 @@ export async function initCommand(options: {
   const preset = (options.preset as PresetName) || 'coding';
   console.log(chalk.bold(`  Preset: ${preset}`));
   console.log(chalk.gray(`    Run 'safemode init --preset <name>' to change`));
-  console.log(chalk.gray('    Available: yolo, coding, personal, trading, strict'));
+  console.log(chalk.gray('    Available: yolo, coding, autonomous, strict'));
   console.log();
 
   // 5. Write default config if needed
@@ -1232,7 +1232,7 @@ export async function statusCommand(): Promise<void> {
 // Preset Command
 // ============================================================================
 
-const VALID_PRESETS: PresetName[] = ['yolo', 'coding', 'personal', 'trading', 'strict'];
+const VALID_PRESETS: PresetName[] = ['yolo', 'coding', 'autonomous', 'strict'];
 
 export async function presetCommand(name: string): Promise<void> {
   if (!VALID_PRESETS.includes(name as PresetName)) {
