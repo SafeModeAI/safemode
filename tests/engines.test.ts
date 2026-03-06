@@ -312,6 +312,45 @@ describe('Engine 10: Secrets Scanner', () => {
     const result = await engine.evaluate(context);
     expect(result.detected).toBe(true);
   });
+
+  it('should NOT trigger on field name apiKeyValid', async () => {
+    const context = createContext({
+      parameters: { apiKeyValid: true, label: 'API key valid' },
+    });
+
+    const result = await engine.evaluate(context);
+    expect(result.detected).toBe(false);
+  });
+
+  it('should NOT trigger on documentation text about patterns', async () => {
+    const context = createContext({
+      parameters: { description: '50+ patterns covering AWS, GitHub, Stripe keys' },
+    });
+
+    const result = await engine.evaluate(context);
+    expect(result.detected).toBe(false);
+  });
+
+  it('should NOT trigger on feature description mentioning detection', async () => {
+    const context = createContext({
+      parameters: { text: 'AWS secret key detection and scanning' },
+    });
+
+    const result = await engine.evaluate(context);
+    expect(result.detected).toBe(false);
+  });
+
+  it('should still detect real AWS secret keys with slash/plus', async () => {
+    const context = createContext({
+      parameters: {
+        secret: 'AWS_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      },
+    });
+
+    const result = await engine.evaluate(context);
+    expect(result.detected).toBe(true);
+    expect(result.action).toBe('block');
+  });
 });
 
 // ============================================================================

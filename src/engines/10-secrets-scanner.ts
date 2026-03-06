@@ -120,10 +120,30 @@ export class SecretsScanner implements DetectionEngine {
       // Reset regex state
       pattern.lastIndex = 0;
 
-      const matches = content.match(pattern) || [];
+      let matchCount = 0;
+      let match: RegExpExecArray | null;
 
-      if (matches.length > 0) {
-        findings.push({ type: name, severity, count: matches.length });
+      while ((match = pattern.exec(content)) !== null) {
+        const matched = match[0];
+
+        // AWS secret key: must contain / or + (real keys always do, identifiers don't)
+        if (name === 'aws_secret_key' && !/[/+]/.test(matched)) {
+          continue;
+        }
+
+        // Skip documentation context: nearby text about patterns/detection is not a secret
+        const ctxStart = Math.max(0, match.index - 80);
+        const ctxEnd = Math.min(content.length, match.index + matched.length + 80);
+        const nearby = content.slice(ctxStart, ctxEnd).toLowerCase();
+        if (/\b(?:patterns?|detects?|scanning|scans?|coverage|engine)\b/.test(nearby)) {
+          continue;
+        }
+
+        matchCount++;
+      }
+
+      if (matchCount > 0) {
+        findings.push({ type: name, severity, count: matchCount });
 
         if (severityOrder[severity] > severityOrder[maxSeverity]) {
           maxSeverity = severity;
