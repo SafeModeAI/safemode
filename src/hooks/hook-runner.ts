@@ -263,9 +263,11 @@ export async function runGovernancePipeline(
 
   // 4. Allow
   const latency = performance.now() - startTime;
-  logEvent(input.sessionId, 'allowed', toolName, serverName, effect, latency, {
+  const skippedIds = skipEngines.size > 0 ? [...skipEngines] : undefined;
+  logEvent(input.sessionId, skippedIds ? 'allowed_override' : 'allowed', toolName, serverName, effect, latency, {
     engines_run: engineResult.engines_run,
     engines_triggered: engineResult.engines_triggered,
+    engines_skipped: skippedIds,
   });
 
   return { decision: 'allow' };

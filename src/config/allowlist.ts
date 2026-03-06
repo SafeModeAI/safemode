@@ -2,7 +2,7 @@
  * Allowlist Manager
  *
  * Manages temporary and permanent overrides for knob values.
- * - Session overrides: ~/.safemode/session-overrides.json (cleared on init)
+ * - Session overrides: ~/.safemode/session-overrides.json (auto-expires)
  * - Permanent overrides: written directly to ~/.safemode/config.yaml
  */
 
@@ -13,6 +13,9 @@ import type { KnobValue } from '../knobs/categories.js';
 
 const SAFEMODE_DIR = path.join(os.homedir(), '.safemode');
 const SESSION_OVERRIDES_PATH = path.join(SAFEMODE_DIR, 'session-overrides.json');
+
+/** Override window: 5 minutes */
+const OVERRIDE_TTL_MS = 5 * 60 * 1000;
 
 // ============================================================================
 // Action → Knob Mapping
@@ -45,14 +48,35 @@ export const ACTION_ENGINE_SKIP: Record<string, number[]> = {
 };
 
 // ============================================================================
-// Session Overrides (--once)
+// Session Overrides (--once, auto-expires after 5 minutes)
 // ============================================================================
+
+interface SessionOverrideFile {
+  /** When the override was created (ISO string) */
+  created_at: string;
+  /** Knob overrides */
+  knobs: Record<string, KnobValue>;
+}
 
 export function loadSessionOverrides(): Record<string, KnobValue> {
   try {
     if (fs.existsSync(SESSION_OVERRIDES_PATH)) {
       const content = fs.readFileSync(SESSION_OVERRIDES_PATH, 'utf8');
-      return JSON.parse(content);
+      const parsed = JSON.parse(content);
+
+      // New format with expiry
+      if (parsed.created_at) {
+        const age = Date.now() - new Date(parsed.created_at).getTime();
+        if (age > OVERRIDE_TTL_MS) {
+          // Expired — clean up and return empty
+          try { fs.unlinkSync(SESSION_OVERRIDES_PATH); } catch { /* ignore */ }
+          return {};
+        }
+        return parsed.knobs || {};
+      }
+
+      // Legacy format (flat knob map, no expiry) — treat as expired
+      return parsed;
     }
   } catch {
     // Corrupted file, treat as empty
@@ -64,15 +88,21 @@ export function saveSessionOverride(action: string): void {
   const knobs = ACTION_KNOB_MAP[action];
   if (!knobs) return;
 
-  const overrides = loadSessionOverrides();
+  // Load existing (may be empty if expired)
+  const existing = loadSessionOverrides();
   for (const knob of knobs) {
-    overrides[knob] = 'allow';
+    existing[knob] = 'allow';
   }
+
+  const file: SessionOverrideFile = {
+    created_at: new Date().toISOString(),
+    knobs: existing,
+  };
 
   if (!fs.existsSync(SAFEMODE_DIR)) {
     fs.mkdirSync(SAFEMODE_DIR, { recursive: true });
   }
-  fs.writeFileSync(SESSION_OVERRIDES_PATH, JSON.stringify(overrides, null, 2));
+  fs.writeFileSync(SESSION_OVERRIDES_PATH, JSON.stringify(file, null, 2));
 }
 
 export function clearSessionOverrides(): void {

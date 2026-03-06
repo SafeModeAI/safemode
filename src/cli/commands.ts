@@ -1312,8 +1312,8 @@ export async function allowCommand(
   } else {
     // Write session override
     saveSessionOverride(action);
-    console.log(chalk.green(`  \u2713 Allowed for this session: ${action}`));
+    console.log(chalk.green(`  \u2713 Allowed for 5 minutes: ${action}`));
     console.log(chalk.gray(`  Knobs affected: ${knobs.join(', ')}`));
-    console.log(chalk.gray('  Override will be cleared on next `safemode init`'));
+    console.log(chalk.gray('  Override auto-expires after 5 minutes'));
   }
 }
