@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.1.1 (2026-03-06)
+
+Preset accuracy release. Six routing fixes ensure presets work as documented.
+
+### Bug Fixes
+
+- **yolo preset blocked too much.** `overrides: {}` meant all default-block knobs (destructive_commands, sudo, permissions_change, secrets, PII, etc.) stayed blocked. Now yolo explicitly overrides all overridable default-block knobs to `allow`. Only hardcoded invariants (Command Firewall, pipe_to_shell) remain.
+- **`git push` routing was broken.** `git push` was classified as `git/write` which routed to `git_commit` knob. The `git_push` knob was unreachable — strict's `git_push: block` had no effect. Fixed: CET now classifies `git push` as `git/transfer`, gate maps `git/transfer` → `git_push`.
+- **`chmod`/`chown` routing was broken.** Classified as `filesystem/write` which routed to `file_write` (allow). The `permissions_change` knob (default: block) was unreachable. Fixed: CET now classifies chmod/chown as `filesystem/execute`, gate maps `filesystem/execute` → `permissions_change`.
+- **`sudo` knob was unreachable.** `sudo` and `eval` (terminal/execute/critical) routed to `command_exec` (allow). The `sudo` knob (default: block) was never triggered. Fixed: gate now routes critical terminal execution to `sudo` knob. `sudo` and `eval` are blocked on coding/personal/trading/strict.
+- **`git_force_push` knob was unreachable.** `git push --force` was classified as `git/delete` which routed to `git_branch_delete`, not `git_force_push`. The coding preset's `git_force_push: approve` had no effect. Fixed: CET classifies force push as `git/execute`, gate maps `git/execute` → `git_force_push`.
+- **`package_installs` knob was a dead reference.** Coding and personal presets overrode `package_installs` (terminal category) but `npm install` routes to the `install` knob (package category). Personal's `package_installs: block` did not block `npm install`. Fixed: presets now override the correct `install` knob. Personal now correctly blocks package installs.
+
+### Documentation
+
+- **Comprehensive preset reference table** in USER_GUIDE.md verified against actual code behavior for all 5 presets across 25+ common actions.
+
+### Testing
+
+- 692 total tests (418 calibration + 274 others), all passing
+- New tests: sudo/eval routing, git_force_push routing, package install on personal, yolo preset verification
+
 ## 2.1.0 (2026-03-05)
 
 Major calibration release. 398 calibration tests verify every path through the governance pipeline. Multiple security fixes, classification improvements, and gap closures.

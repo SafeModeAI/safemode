@@ -38,6 +38,7 @@ const ACTION_KNOB_MAP: Record<string, Record<string, string>> = {
     write: 'file_write',
     create: 'file_write',
     delete: 'file_delete',
+    execute: 'permissions_change',
   },
   terminal: {
     execute: 'command_exec',
@@ -48,6 +49,8 @@ const ACTION_KNOB_MAP: Record<string, Record<string, string>> = {
     read: 'git_read',
     write: 'git_commit',
     create: 'git_commit',
+    transfer: 'git_push',
+    execute: 'git_force_push',
     delete: 'git_branch_delete',
   },
   network: {
@@ -191,6 +194,11 @@ export class KnobGate {
 
     if (!actionMap) {
       return null;
+    }
+
+    // Critical terminal execution (sudo, eval) routes to sudo knob, not command_exec
+    if (category === 'terminal' && effect.action === 'execute' && effect.risk === 'critical') {
+      return 'sudo';
     }
 
     const knob = actionMap[effect.action];

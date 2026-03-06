@@ -406,7 +406,7 @@ export class CETClassifier {
     const words = trimmed.split(/\s+/);
     const firstWord = words[0]?.replace(/^.*\//, ''); // strip path prefix
 
-    if (!firstWord) return null;
+    if (!firstWord) return { category: 'terminal', action: 'read', risk: 'low' };
 
     // ── Critical: genuinely catastrophic ──
     if (firstWord === 'sudo') {
@@ -456,9 +456,9 @@ export class CETClassifier {
     if (firstWord === 'git') {
       const subCmd = words[1];
       if (subCmd === 'push' && (trimmed.includes('--force') || trimmed.includes('-f'))) {
-        return { category: 'git', action: 'delete', risk: 'critical' };
+        return { category: 'git', action: 'execute', risk: 'critical' };
       }
-      if (subCmd === 'push') return { category: 'git', action: 'write', risk: 'medium' };
+      if (subCmd === 'push') return { category: 'git', action: 'transfer', risk: 'medium' };
       if (subCmd === 'branch' && trimmed.includes('-D')) return { category: 'git', action: 'delete', risk: 'high' };
       if (subCmd === 'reset' && trimmed.includes('--hard')) return { category: 'git', action: 'delete', risk: 'high' };
       if (subCmd === 'clean' && trimmed.includes('-f')) return { category: 'git', action: 'delete', risk: 'high' };
@@ -558,7 +558,7 @@ export class CETClassifier {
 
     // ── Permission/ownership changes → high ──
     if (firstWord === 'chmod' || firstWord === 'chown' || firstWord === 'chgrp') {
-      return { category: 'filesystem', action: 'write', risk: 'high' };
+      return { category: 'filesystem', action: 'execute', risk: 'high' };
     }
 
     // ── File write operations → medium ──

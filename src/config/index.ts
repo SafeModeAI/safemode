@@ -136,7 +136,54 @@ const PRESET_DEFAULTS: Record<PresetName, Partial<SafeModeConfig>> = {
     preset: 'yolo',
     approve_fallback: 'allow',
     budget: { max_session_cost: 100, alert_at: 80 },
-    overrides: {},
+    overrides: {
+      // Override ALL overridable default-block knobs to allow.
+      // Only hardcoded knobs (pipe_to_shell) and Command Firewall remain.
+      terminal: {
+        destructive_commands: 'allow',
+        sudo: 'allow',
+        daemons: 'allow',
+        cron_jobs: 'allow',
+      },
+      filesystem: {
+        permissions_change: 'allow',
+      },
+      database: {
+        db_schema_change: 'allow',
+        db_admin: 'allow',
+      },
+      api: {
+        api_admin: 'allow',
+      },
+      cloud: {
+        instance_delete: 'allow',
+        network_modify: 'allow',
+        iam_change: 'allow',
+      },
+      physical: {
+        hardware_control: 'allow',
+      },
+      package: {
+        publish: 'allow',
+      },
+      scheduling: {
+        cron_create: 'allow',
+      },
+      authentication: {
+        credential_write: 'allow',
+        credential_delete: 'allow',
+      },
+      deployment: {
+        deploy_production: 'allow',
+      },
+      data_protection: {
+        block_secrets: 'allow',
+        block_pii: 'allow',
+        block_api_keys: 'allow',
+        block_credentials: 'allow',
+        block_tokens: 'allow',
+      },
+    },
   },
   coding: {
     preset: 'coding',
@@ -145,7 +192,6 @@ const PRESET_DEFAULTS: Record<PresetName, Partial<SafeModeConfig>> = {
     overrides: {
       terminal: {
         destructive_commands: 'block',
-        package_installs: 'approve',
       },
       filesystem: {
         file_delete: 'approve',
@@ -153,6 +199,9 @@ const PRESET_DEFAULTS: Record<PresetName, Partial<SafeModeConfig>> = {
       },
       git: {
         git_force_push: 'approve',
+      },
+      package: {
+        install: 'approve',
       },
     },
   },
@@ -164,7 +213,9 @@ const PRESET_DEFAULTS: Record<PresetName, Partial<SafeModeConfig>> = {
       terminal: {
         command_exec: 'block',
         destructive_commands: 'block',
-        package_installs: 'block',
+      },
+      package: {
+        install: 'block',
       },
     },
   },

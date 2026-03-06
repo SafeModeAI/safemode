@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { CETClassifier } from '../src/cet/index.js';
 import { KnobGate, type KnobGateConfig } from '../src/knobs/gate.js';
-import { getDefaultKnobValues } from '../src/knobs/categories.js';
+import { getDefaultKnobValues, KNOB_DEFINITIONS, type KnobValue } from '../src/knobs/categories.js';
 import { EngineRegistry } from '../src/engines/index.js';
 import { CommandFirewall } from '../src/engines/13-command-firewall.js';
 import type { SessionState } from '../src/engines/base.js';
@@ -208,7 +208,7 @@ describe('Calibration: CET Classification', () => {
       const effect = classifyCmd('git push origin main');
       expect(effect.risk).toBe('medium');
       expect(effect.category).toBe('git');
-      expect(effect.action).toBe('write');
+      expect(effect.action).toBe('transfer');
     });
 
     it('git push → medium', () => {
@@ -220,16 +220,16 @@ describe('Calibration: CET Classification', () => {
   // ── Git destructive → high/critical ──
 
   describe('Git destructive → high/critical risk', () => {
-    it('git push --force → critical', () => {
+    it('git push --force → critical (git_force_push knob)', () => {
       const effect = classifyCmd('git push --force origin main');
       expect(effect.risk).toBe('critical');
-      expect(effect.action).toBe('delete');
+      expect(effect.action).toBe('execute');
     });
 
-    it('git push -f → critical', () => {
+    it('git push -f → critical (git_force_push knob)', () => {
       const effect = classifyCmd('git push -f origin main');
       expect(effect.risk).toBe('critical');
-      expect(effect.action).toBe('delete');
+      expect(effect.action).toBe('execute');
     });
 
     it('git branch -D → high', () => {
@@ -386,17 +386,17 @@ describe('Calibration: CET Classification', () => {
       expect(effect.risk).toBe('low');
     });
 
-    it('chmod → filesystem/write/high', () => {
+    it('chmod → filesystem/execute/high (permissions_change knob)', () => {
       const effect = classifyCmd('chmod 755 script.sh');
       expect(effect.category).toBe('filesystem');
-      expect(effect.action).toBe('write');
+      expect(effect.action).toBe('execute');
       expect(effect.risk).toBe('high');
     });
 
-    it('chown → filesystem/write/high', () => {
+    it('chown → filesystem/execute/high (permissions_change knob)', () => {
       const effect = classifyCmd('chown user:group file');
       expect(effect.category).toBe('filesystem');
-      expect(effect.action).toBe('write');
+      expect(effect.action).toBe('execute');
       expect(effect.risk).toBe('high');
     });
 
@@ -1120,10 +1120,10 @@ describe('Calibration: Full Pipeline (CET → Knob → Engines)', () => {
       expect(result.decision).toBe('allow');
     });
 
-    it('chmod on regular file is NOT blocked by firewall', async () => {
-      // chmod 755 on a regular file is high risk but not firewall-blocked
+    it('chmod on regular file is BLOCKED by permissions_change knob (default: block)', async () => {
+      // chmod routes to filesystem/execute → permissions_change knob (default: block)
       const result = await pipeline('chmod 755 script.sh');
-      expect(result.decision).toBe('allow');
+      expect(result.decision).toBe('block');
     });
 
     it('echo without redirect is NOT a write', async () => {
@@ -1185,11 +1185,14 @@ describe('Calibration: All Knob Routes', () => {
     it('filesystem/write → file_write', () => assertKnob('filesystem', 'write', 'file_write'));
     it('filesystem/create → file_write', () => assertKnob('filesystem', 'create', 'file_write'));
     it('filesystem/delete → file_delete', () => assertKnob('filesystem', 'delete', 'file_delete'));
+    it('filesystem/execute → permissions_change', () => assertKnob('filesystem', 'execute', 'permissions_change'));
   });
 
   describe('Git knobs', () => {
     it('git/write → git_commit', () => assertKnob('git', 'write', 'git_commit'));
     it('git/create → git_commit', () => assertKnob('git', 'create', 'git_commit'));
+    it('git/transfer → git_push', () => assertKnob('git', 'transfer', 'git_push'));
+    it('git/execute → git_force_push', () => assertKnob('git', 'execute', 'git_force_push'));
     it('git/delete → git_branch_delete', () => assertKnob('git', 'delete', 'git_branch_delete'));
   });
 
@@ -1500,5 +1503,205 @@ describe('Calibration: git_read knob routing', () => {
     const result = gate.evaluate(effect);
     expect(result.knob).toBe('http_request');
     expect(result.decision).toBe('allow');
+  });
+
+  it('git push → git/transfer → git_push knob → allow (coding)', () => {
+    const effect = classifyCmd('git push origin main');
+    const gate = createKnobGate();
+    const result = gate.evaluate(effect);
+    expect(result.knob).toBe('git_push');
+    expect(result.decision).toBe('allow');
+  });
+
+  it('git push on strict preset → git_push knob → block', () => {
+    const effect = classifyCmd('git push origin main');
+    // Build strict knobs
+    const knobs = getDefaultKnobValues();
+    knobs['git_push'] = 'block';
+    const gate = new KnobGate({ knobs, approveFallback: 'block' });
+    const result = gate.evaluate(effect);
+    expect(result.knob).toBe('git_push');
+    expect(result.decision).toBe('block');
+  });
+
+  it('chmod → filesystem/execute → permissions_change knob → block (default)', () => {
+    const effect = classifyCmd('chmod 755 script.sh');
+    const gate = createKnobGate();
+    const result = gate.evaluate(effect);
+    expect(result.knob).toBe('permissions_change');
+    expect(result.decision).toBe('block');
+  });
+});
+
+// ============================================================================
+// Section 9: Preset Verification — yolo allows everything except hardcoded
+// ============================================================================
+
+describe('Calibration: Yolo Preset', () => {
+  // Build yolo knobs the same way ConfigLoader.computeKnobs would
+  function createYoloKnobs(): Record<string, KnobValue> {
+    const knobs = getDefaultKnobValues();
+    const yoloOverrides: Record<string, Record<string, KnobValue>> = {
+      terminal: { destructive_commands: 'allow', sudo: 'allow', daemons: 'allow', cron_jobs: 'allow' },
+      filesystem: { permissions_change: 'allow' },
+      database: { db_schema_change: 'allow', db_admin: 'allow' },
+      api: { api_admin: 'allow' },
+      cloud: { instance_delete: 'allow', network_modify: 'allow', iam_change: 'allow' },
+      physical: { hardware_control: 'allow' },
+      package: { publish: 'allow' },
+      scheduling: { cron_create: 'allow' },
+      authentication: { credential_write: 'allow', credential_delete: 'allow' },
+      deployment: { deploy_production: 'allow' },
+      data_protection: { block_secrets: 'allow', block_pii: 'allow', block_api_keys: 'allow', block_credentials: 'allow', block_tokens: 'allow' },
+    };
+    for (const catKnobs of Object.values(yoloOverrides)) {
+      for (const [knob, value] of Object.entries(catKnobs)) {
+        knobs[knob] = value;
+      }
+    }
+    return knobs;
+  }
+
+  const yoloGate = new KnobGate({ knobs: createYoloKnobs(), approveFallback: 'allow' });
+
+  it('rm -rf dist/ → allow on yolo (destructive_commands overridden)', () => {
+    const effect = classifyCmd('rm -rf dist/');
+    const result = yoloGate.evaluate(effect);
+    expect(result.decision).toBe('allow');
+  });
+
+  it('chmod 777 / → allow on yolo (permissions_change overridden)', () => {
+    const effect = classifyCmd('chmod 777 /');
+    const result = yoloGate.evaluate(effect);
+    expect(result.decision).toBe('allow');
+  });
+
+  it('secrets knob → allow on yolo', () => {
+    const effect: ToolCallEffect = {
+      action: 'read', target: '', scope: 'project', risk: 'low',
+      category: 'data_protection', confidence: 1.0, source: 'registry',
+    };
+    const result = yoloGate.evaluate(effect);
+    expect(result.knob).toBe('block_secrets');
+    expect(result.decision).toBe('allow');
+  });
+
+  it('no overridable default-block knob remains blocked', () => {
+    // Every overridable knob that defaults to block should be allow on yolo
+    const yoloKnobs = createYoloKnobs();
+    for (const defs of Object.values(KNOB_DEFINITIONS)) {
+      for (const def of defs) {
+        if (def.default === 'block' && def.overridable) {
+          expect(yoloKnobs[def.id]).toBe('allow');
+        }
+      }
+    }
+  });
+
+  it('pipe_to_shell (hardcoded) remains blocked even on yolo', () => {
+    const yoloKnobs = createYoloKnobs();
+    // Hardcoded knobs cannot be overridden by presets
+    // pipe_to_shell is hardcoded (overridable: false), so its default stays
+    expect(yoloKnobs['pipe_to_shell']).toBe('block');
+  });
+
+  it('sudo → allow on yolo (sudo knob overridden)', () => {
+    const effect = classifyCmd('sudo apt install foo');
+    const result = yoloGate.evaluate(effect);
+    expect(result.knob).toBe('sudo');
+    expect(result.decision).toBe('allow');
+  });
+});
+
+// ============================================================================
+// Section 10: Gap Fixes — sudo, git_force_push, package install routing
+// ============================================================================
+
+describe('Calibration: Gap Fixes', () => {
+  describe('Fix 1: sudo knob now reachable', () => {
+    it('sudo → terminal/execute/critical → sudo knob (block on coding)', () => {
+      const effect = classifyCmd('sudo apt install foo');
+      expect(effect.category).toBe('terminal');
+      expect(effect.action).toBe('execute');
+      expect(effect.risk).toBe('critical');
+      const gate = createKnobGate();
+      const result = gate.evaluate(effect);
+      expect(result.knob).toBe('sudo');
+      expect(result.decision).toBe('block');
+    });
+
+    it('eval → terminal/execute/critical → sudo knob (block on coding)', () => {
+      const effect = classifyCmd('eval "echo hello"');
+      expect(effect.risk).toBe('critical');
+      const gate = createKnobGate();
+      const result = gate.evaluate(effect);
+      expect(result.knob).toBe('sudo');
+      expect(result.decision).toBe('block');
+    });
+
+    it('npm run build → terminal/execute/medium → command_exec (NOT sudo)', () => {
+      const effect = classifyCmd('npm run build');
+      expect(effect.risk).toBe('medium');
+      const gate = createKnobGate();
+      const result = gate.evaluate(effect);
+      expect(result.knob).toBe('command_exec');
+      expect(result.decision).toBe('allow');
+    });
+  });
+
+  describe('Fix 2: git_force_push knob now reachable', () => {
+    it('git push --force → git/execute/critical → git_force_push (approve on coding)', () => {
+      const effect = classifyCmd('git push --force origin main');
+      expect(effect.category).toBe('git');
+      expect(effect.action).toBe('execute');
+      expect(effect.risk).toBe('critical');
+      const gate = createKnobGate();
+      const result = gate.evaluate(effect);
+      expect(result.knob).toBe('git_force_push');
+      expect(result.decision).toBe('approve');
+    });
+
+    it('git branch -D → git/delete → git_branch_delete (separate from force push)', () => {
+      const effect = classifyCmd('git branch -D old-branch');
+      expect(effect.action).toBe('delete');
+      const gate = createKnobGate();
+      const result = gate.evaluate(effect);
+      expect(result.knob).toBe('git_branch_delete');
+    });
+  });
+
+  describe('Fix 3: package install knob routing', () => {
+    it('npm install → package/create → install knob (approve on coding)', () => {
+      const effect = classifyCmd('npm install lodash');
+      expect(effect.category).toBe('package');
+      expect(effect.action).toBe('create');
+      const gate = createKnobGate();
+      const result = gate.evaluate(effect);
+      expect(result.knob).toBe('install');
+      expect(result.decision).toBe('approve');
+    });
+
+    it('npm install → install knob → block on personal', () => {
+      const effect = classifyCmd('npm install lodash');
+      // Build personal knobs: install overridden to block
+      const knobs = getDefaultKnobValues();
+      knobs['command_exec'] = 'block';
+      knobs['destructive_commands'] = 'block';
+      knobs['install'] = 'block';
+      const gate = new KnobGate({ knobs, approveFallback: 'block' });
+      const result = gate.evaluate(effect);
+      expect(result.knob).toBe('install');
+      expect(result.decision).toBe('block');
+    });
+
+    it('pip install → install knob → block on personal', () => {
+      const effect = classifyCmd('pip install requests');
+      const knobs = getDefaultKnobValues();
+      knobs['install'] = 'block';
+      const gate = new KnobGate({ knobs, approveFallback: 'block' });
+      const result = gate.evaluate(effect);
+      expect(result.knob).toBe('install');
+      expect(result.decision).toBe('block');
+    });
   });
 });

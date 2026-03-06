@@ -80,12 +80,19 @@ Knobs are configurable permissions per action type. Each knob has three values:
 The `ACTION_KNOB_MAP` in `src/knobs/gate.ts` maps (category, action) pairs to knob names. For example:
 
 ```
-terminal/read    → command_exec     (allow)
-terminal/delete  → destructive_commands (block)
-filesystem/write → file_write       (allow)
-package/create   → install          (approve)
-container/create → container_create (approve)
-git/delete       → git_branch_delete (approve)
+terminal/read              → command_exec        (allow)
+terminal/execute           → command_exec        (allow)
+terminal/execute [critical]→ sudo                (block)  ← risk-aware override
+terminal/delete            → destructive_commands (block)
+filesystem/write           → file_write          (allow)
+filesystem/execute         → permissions_change  (block)
+filesystem/delete          → file_delete         (approve)
+package/create             → install             (approve)
+container/create           → container_create    (approve)
+git/read                   → git_read            (allow)
+git/transfer               → git_push            (allow)
+git/execute                → git_force_push      (approve)
+git/delete                 → git_branch_delete   (approve)
 ```
 
 Knob definitions in `src/knobs/categories.ts` provide the default values. Preset configs in `src/config/index.ts` override these defaults.
@@ -184,6 +191,8 @@ The firewall runs at medium risk and above. For low risk commands (reads), it do
 2. **scope_from paths are relative to the params object.** For Claude Code native tools, use flat paths (`file_path`). For MCP tools, use nested paths (`parameters.path`).
 3. **Project scope must be checked before system scope.** A project at `/tmp/myproject` must classify `/tmp/myproject/file.ts` as `project`, not `system`.
 4. **Approve falls through to allow.** Since 2.0.17, `approve` knobs don't block — they let Claude Code's native permission prompt handle it. Only `block` knobs hard-deny.
+5. **Critical terminal execution routes to `sudo` knob.** The gate has a risk-aware override: `terminal/execute` at `critical` risk routes to `sudo` (block) instead of `command_exec` (allow). This catches `sudo` and `eval`.
+6. **Preset knob overrides must target the correct knob.** The `install` knob (package category) controls `npm install` — not `package_installs` (terminal category). Ensure preset overrides reference the knob that the gate actually routes to.
 
 ## Testing
 
@@ -196,7 +205,7 @@ npm run test:run      # Single run
 
 | File | Tests | Purpose |
 |------|-------|---------|
-| `calibration.test.ts` | 398 | Full pipeline verification (CET → KnobGate → Engines) |
+| `calibration.test.ts` | 418 | Full pipeline verification (CET → KnobGate → Engines) |
 | `cet.test.ts` | 33 | CET classifier unit tests |
 | `engines.test.ts` | 36 | Individual engine tests |
 | `knobs.test.ts` | 19 | Knob gate routing tests |
@@ -205,7 +214,7 @@ npm run test:run      # Single run
 | `timemachine.test.ts` | 19 | File snapshot/restore |
 | Others | ~113 | Rules, ATSP, quarantine, CLI, proxy, ML engines, approvals |
 
-**Total: 672 tests across 14 files.** Do not reduce this number.
+**Total: 692 tests across 14 files.** Do not reduce this number.
 
 The calibration test suite is the most important — it tests every real-world command through the full pipeline and catches regressions across all components.
 

