@@ -38,6 +38,17 @@ export const ACTION_KNOB_MAP: Record<string, string[]> = {
 export const VALID_ACTIONS = Object.keys(ACTION_KNOB_MAP);
 
 /**
+ * Reverse map: knob name → CLI action name
+ * Used to suggest `safemode allow <action>` in deny reasons
+ */
+export const KNOB_ACTION_MAP: Record<string, string> = {};
+for (const [action, knobs] of Object.entries(ACTION_KNOB_MAP)) {
+  for (const knob of knobs) {
+    KNOB_ACTION_MAP[knob] = action;
+  }
+}
+
+/**
  * Maps CLI action names to engine IDs that should be skipped
  * when that action is allowed via session overrides.
  */

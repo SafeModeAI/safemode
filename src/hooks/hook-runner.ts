@@ -15,7 +15,7 @@ import { KnobGate } from '../knobs/gate.js';
 import { EngineRegistry } from '../engines/index.js';
 import { getRulesEngine, configureRulesEngine, parseRules } from '../rules/index.js';
 import { getEventStore, closeEventStore } from '../store/index.js';
-import { loadSessionOverrides, ACTION_ENGINE_SKIP, ACTION_KNOB_MAP } from '../config/allowlist.js';
+import { loadSessionOverrides, ACTION_ENGINE_SKIP, ACTION_KNOB_MAP, KNOB_ACTION_MAP } from '../config/allowlist.js';
 import { nanoid } from 'nanoid';
 import { createHash } from 'node:crypto';
 import type { ToolCallEffect } from '../cet/types.js';
@@ -195,17 +195,22 @@ export async function runGovernancePipeline(
 
   if (knobResult.decision === 'block') {
     const latency = performance.now() - startTime;
+    const allowAction = knobResult.knob ? KNOB_ACTION_MAP[knobResult.knob] : undefined;
+    const hint = allowAction ? ` — run: safemode allow ${allowAction} --once` : '';
+    const reason = `${knobResult.reason}${hint}`;
     logEvent(input.sessionId, 'block', toolName, serverName, effect, latency, {
       knob: knobResult.knob,
       reason: knobResult.reason,
     });
     writeBlockNotification(toolName, knobResult.reason, surface);
-    return { decision: 'block', reason: knobResult.reason };
+    return { decision: 'block', reason };
   }
 
   if (knobResult.decision === 'approve' && config.preset !== 'yolo') {
     const latency = performance.now() - startTime;
-    const reason = 'Action requires approval (approve_fallback: block)';
+    const allowAction = knobResult.knob ? KNOB_ACTION_MAP[knobResult.knob] : undefined;
+    const hint = allowAction ? ` — run: safemode allow ${allowAction} --once` : '';
+    const reason = `Blocked by Safe Mode (${knobResult.knob}: approve)${hint}`;
     logEvent(input.sessionId, 'block', toolName, serverName, effect, latency, {
       knob: knobResult.knob,
       reason,
@@ -256,7 +261,13 @@ export async function runGovernancePipeline(
       engines_run: engineResult.engines_run,
       engines_triggered: engineResult.engines_triggered,
     });
-    const reason = engineResult.block_reason || 'Blocked by detection engine';
+    // Map engine name to allow action for the hint
+    const engineActionMap: Record<string, string> = {
+      secrets_scanner: 'secrets', pii_scanner: 'pii', command_firewall: 'commands',
+    };
+    const engineAction = engineResult.blocked_by ? engineActionMap[engineResult.blocked_by] : undefined;
+    const hint = engineAction ? ` — run: safemode allow ${engineAction} --once` : '';
+    const reason = (engineResult.block_reason || 'Blocked by detection engine') + hint;
     writeBlockNotification(toolName, reason, surface);
     return { decision: 'block', reason };
   }
