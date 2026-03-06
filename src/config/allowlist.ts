@@ -34,6 +34,16 @@ export const ACTION_KNOB_MAP: Record<string, string[]> = {
 
 export const VALID_ACTIONS = Object.keys(ACTION_KNOB_MAP);
 
+/**
+ * Maps CLI action names to engine IDs that should be skipped
+ * when that action is allowed via session overrides.
+ */
+export const ACTION_ENGINE_SKIP: Record<string, number[]> = {
+  secrets: [10],   // Secrets Scanner
+  pii: [9],        // PII Scanner
+  commands: [13],  // Command Firewall
+};
+
 // ============================================================================
 // Session Overrides (--once)
 // ============================================================================

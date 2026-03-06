@@ -15,7 +15,7 @@ import { KnobGate } from '../knobs/gate.js';
 import { EngineRegistry } from '../engines/index.js';
 import { getRulesEngine, configureRulesEngine, parseRules } from '../rules/index.js';
 import { getEventStore, closeEventStore } from '../store/index.js';
-import { loadSessionOverrides } from '../config/allowlist.js';
+import { loadSessionOverrides, ACTION_ENGINE_SKIP, ACTION_KNOB_MAP } from '../config/allowlist.js';
 import { nanoid } from 'nanoid';
 import { createHash } from 'node:crypto';
 import type { ToolCallEffect } from '../cet/types.js';
@@ -214,14 +214,25 @@ export async function runGovernancePipeline(
     return { decision: 'block', reason };
   }
 
-  // 3. Run detection engines
+  // 3. Run detection engines (skip engines for allowed actions)
+  const skipEngines = new Set<number>();
+  if (overrides) {
+    for (const [action, knobs] of Object.entries(ACTION_KNOB_MAP)) {
+      if (knobs.some(k => overrides[k] === 'allow')) {
+        const engineIds = ACTION_ENGINE_SKIP[action];
+        if (engineIds) engineIds.forEach(id => skipEngines.add(id));
+      }
+    }
+  }
+
   const session = getOrCreateSession(input.sessionId, config.budget.cost_per_call);
   const engineResult = await engines.evaluate(
     toolName,
     serverName,
     params,
     effect,
-    session
+    session,
+    skipEngines.size > 0 ? skipEngines : undefined
   );
 
   // Update session tracking

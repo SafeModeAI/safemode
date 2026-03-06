@@ -97,12 +97,16 @@ export class EngineRegistry {
     serverName: string,
     params: Record<string, unknown>,
     effect: ToolCallEffect,
-    session: SessionState
+    session: SessionState,
+    skipEngines?: Set<number>
   ): Promise<EngineEvaluationResult> {
     const startTime = performance.now();
 
-    // Determine which engines to run based on risk
-    const engineIds = ENGINE_ROUTING[effect.risk] || ENGINE_ROUTING.low;
+    // Determine which engines to run based on risk, minus any skipped
+    let engineIds = ENGINE_ROUTING[effect.risk] || ENGINE_ROUTING.low;
+    if (skipEngines && skipEngines.size > 0) {
+      engineIds = engineIds.filter(id => !skipEngines.has(id));
+    }
 
     // Build context
     const context: EngineContext = {
